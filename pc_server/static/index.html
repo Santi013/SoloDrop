@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <title>SoloDrop</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=20260517-icons" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/app-icon-180.png?v=20260517-icons" />
+    <link rel="manifest" href="/manifest.webmanifest?v=20260517-icons" />
+    <link rel="stylesheet" href="/style.css?v=20260517-icons" />
+  </head>
+  <body>
+    <div id="sidebarOverlay" class="sidebar-overlay" hidden></div>
+    <aside id="historySidebar" class="history-sidebar" aria-label="История передач">
+      <div class="sidebar-header">
+        <div>
+          <h2>История</h2>
+          <p>Передачи по датам</p>
+        </div>
+        <button id="closeSidebarButton" class="icon-button" type="button" title="Закрыть">×</button>
+      </div>
+      <nav id="historyList" class="history-list"></nav>
+    </aside>
+
+    <main class="chat-shell">
+      <header class="top-bar">
+        <div class="brand">
+          <button id="openSidebarButton" class="icon-button" type="button" title="История">☰</button>
+          <img class="brand-icon" src="/icons/solodrop-mark-96.png?v=20260517-icons" alt="" width="38" height="38" />
+          <div>
+            <h1>SoloDrop</h1>
+            <p id="connectionStatus">Подключение...</p>
+          </div>
+        </div>
+        <div class="top-actions">
+          <button id="settingsButton" class="icon-button" type="button" title="Настройки">⚙</button>
+          <button id="clearChatButton" class="clear-chat-button" type="button" title="Очистить чат">
+            🗑
+          </button>
+        </div>
+      </header>
+
+      <section id="messageList" class="message-list" aria-label="Лента сообщений"></section>
+
+      <form id="composer" class="composer">
+        <label class="attach-button" title="Прикрепить файл">
+          <input id="fileInput" type="file" />
+          <span>+</span>
+        </label>
+        <input id="messageInput" type="text" autocomplete="off" placeholder="Сообщение" />
+        <button class="send-button" type="submit" title="Отправить">↑</button>
+      </form>
+    </main>
+
+    <div id="settingsOverlay" class="settings-overlay" hidden>
+      <section class="settings-panel" aria-label="Настройки">
+        <div class="settings-header">
+          <div>
+            <h2>Настройки</h2>
+            <p>Параметры этого устройства</p>
+          </div>
+          <button id="closeSettingsButton" class="icon-button" type="button" title="Закрыть">×</button>
+        </div>
+        <label class="settings-row">
+          <span>
+            <strong>Автосохранение</strong>
+            <small>Полученные файлы будут сохраняться автоматически</small>
+          </span>
+          <span class="autosave-toggle">
+            <input id="autosaveToggle" type="checkbox" />
+            <span class="toggle-track" aria-hidden="true"></span>
+          </span>
+        </label>
+      </section>
+    </div>
+
+    <div id="imageViewer" class="image-viewer" hidden>
+      <button id="closeViewerButton" class="viewer-close" type="button" title="Закрыть">×</button>
+      <img id="viewerImage" class="viewer-image" alt="" />
+      <div class="viewer-footer">
+        <span id="viewerFileName"></span>
+        <a id="viewerOpenOriginal" href="#" target="_blank" rel="noreferrer">Оригинал</a>
+      </div>
+    </div>
+
+    <div id="contextMenuOverlay" class="context-menu-overlay" hidden>
+      <div id="messageContextMenu" class="message-context-menu" role="menu">
+        <button id="copyMessageButton" type="button">Копировать</button>
+        <button id="saveMessageButton" type="button" hidden>Сохранить</button>
+      </div>
+    </div>
+
+    <div id="dropZone" class="drop-zone" hidden>
+      <div class="drop-zone-panel">
+        <div class="drop-zone-icon">＋</div>
+        <div class="drop-zone-title">Отпустите файлы здесь</div>
+        <div class="drop-zone-subtitle">Изображения, видео и аудио будут отправлены в SoloDrop</div>
+      </div>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+    <script src="/app.js?v=20260517-icons"></script>
+  </body>
+</html>

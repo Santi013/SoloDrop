@@ -1,0 +1,25 @@
+{
+  "name": "SoloDrop",
+  "short_name": "SoloDrop",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111113",
+  "theme_color": "#0a84ff",
+  "icons": [
+    {
+      "src": "/icons/app-icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/app-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/app-icon-1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png"
+    }
+  ]
+}

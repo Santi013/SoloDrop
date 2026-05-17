@@ -1,0 +1,51 @@
+# OS / editor clutter
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# SoloDrop local runtime data
+pc_server/data/
+pc_server/logs/
+*.log
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+
+# Swift / Xcode
+.build/
+.swiftpm/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# Build output
+build/
+Build/
+bin/
+obj/
+dist/
+out/
+coverage/
+node_modules/
