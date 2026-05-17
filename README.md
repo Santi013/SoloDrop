@@ -1,175 +1,34 @@
-# SoloDrop для iPhone и ПК
+# 🚀 SoloDrop — Instant Local File Sharing
 
-Это минимальное клиент-серверное приложение для личного обмена текстом, ссылками и файлами между iPhone и компьютером в одной локальной Wi-Fi сети.
+**SoloDrop** is a lightweight, ultra-fast cross-platform application for transferring files, photos, and text between your devices in a local network with just one click.
 
-## Что внутри
+## ❓ Why use it?
+Imagine you need to transfer a heavy video or a bunch of photos from an iPhone to a Windows PC, or copy a long text from a PC to a phone. With SoloDrop, it takes just a couple of seconds without messaging yourself, using USB flash drives, or dealing with complex configurations.
 
-- `pc_server/` — сервер на Python FastAPI.
-- `pc_server/static/` — веб-чат для ПК, открывается в браузере.
-- `pc_server/data/messages.sqlite3` — локальная SQLite-база появится после первого запуска.
-- `pc_server/data/uploads/` — загруженные файлы появятся после отправки.
-- `ios_swiftui/SavedMessages/SavedMessages/` — исходный код iOS-приложения на SwiftUI.
+## ✨ Key Features
+* **End-to-End P2P Transfer:** Files are transferred directly between devices via Wi-Fi, bypassing third-party clouds and internet servers. Maximum speed of your router!
+* **Absolute Privacy:** Your data is never saved on the internet. Everything stays strictly inside your home or office local network.
+* **Cross-Platform:** Native iOS client (SwiftUI) and a universal PC server (Python).
+* **One-Tap Exchange:** Drag-and-Drop interface — simply drag a file or choose a device from the discovered list.
 
-## Архитектура
+## 🛠 Project Architecture
+The project is split into three main components:
+1. `pc_server/` — PC server application written in **Python**. Includes automation launch scripts for Windows (`.cmd`, `.ps1`, `.vbs`) and macOS (`.sh`).
+2. `ios_swiftui/` — Native iOS mobile app built with the **SwiftUI** framework.
+3. `ios_webview/` — Alternative hybrid/WebView version of the iOS client.
 
-ПК запускает локальный сервер на порту `8765`. Браузер на ПК открывает `http://127.0.0.1:8765`, а iPhone подключается к этому же серверу по адресу вида:
+## 💻 Quick Start (PC Server)
 
-```text
-http://IP_ВАШЕГО_ПК:8765
-```
+### Requirements
+* Python 3.10 or higher
 
-История сообщений и файлы хранятся только на ПК. Облако не используется. Если нужна синхронизация вне дома, самый простой следующий шаг — добавить бесплатный Tailscale/ZeroTier VPN между iPhone и ПК, чтобы сохранить ту же архитектуру без публичной базы данных.
-
-## Как узнать IP-адрес ПК
-
-### Windows
-
-Откройте PowerShell и выполните:
-
-```powershell
-ipconfig
-```
-
-Найдите активный Wi-Fi адаптер и строку `IPv4 Address`, например `192.168.1.34`.
-
-### macOS
-
-Откройте Terminal и выполните:
-
-```bash
-ipconfig getifaddr en0
-```
-
-Обычно Wi-Fi адрес будет вида `192.168.1.34`.
-
-## Запуск сервера на ПК
-
-### Быстрый запуск
-
-Самый простой способ на Windows: откройте папку `pc_server` и дважды нажмите:
-
-```text
-Start SoloDrop.cmd
-```
-
-Окно сервера должно оставаться открытым. Чтобы остановить сервер, нажмите в этом окне `Ctrl + C` или запустите:
-
-```text
-Stop SoloDrop.cmd
-```
-
-Windows PowerShell из папки `pc_server`:
-
-```powershell
-.\start_windows.ps1
-```
-
-macOS Terminal из папки `pc_server`:
-
-```bash
-chmod +x start_macos.sh
-./start_macos.sh
-```
-
-### Ручной запуск
-
-1. Установите Python 3.11 или новее.
-2. Откройте терминал в папке `pc_server`.
-3. Создайте виртуальное окружение:
-
-```bash
-python -m venv .venv
-```
-
-4. Активируйте его.
-
-Windows PowerShell:
-
-```powershell
-.venv\Scripts\Activate.ps1
-```
-
-macOS:
-
-```bash
-source .venv/bin/activate
-```
-
-5. Установите зависимости:
-
-```bash
-pip install -r requirements.txt
-```
-
-6. Запустите сервер:
-
-```bash
-python -m uvicorn main:app --host 0.0.0.0 --port 8765
-```
-
-7. На ПК откройте браузер:
-
-```text
-http://127.0.0.1:8765
-```
-
-8. На iPhone в приложении укажите адрес:
-
-```text
-http://IP_ВАШЕГО_ПК:8765
-```
-
-Если iPhone не подключается, проверьте, что оба устройства в одной Wi-Fi сети, а firewall разрешает входящие подключения к Python/порту `8765`.
-
-## Установка iOS-приложения через Xcode
-
-1. Установите Xcode на Mac.
-2. Откройте Xcode и создайте новый проект:
-   - `File` → `New` → `Project`.
-   - `iOS` → `App`.
-   - Product Name: `SavedMessages`.
-   - Interface: `SwiftUI`.
-   - Language: `Swift`.
-3. Удалите автоматически созданный `ContentView.swift` и `SavedMessagesApp.swift`.
-4. Перетащите в проект файлы из папки:
-
-```text
-ios_swiftui/SavedMessages/SavedMessages/
-```
-
-5. В настройках target откройте `Info` и добавьте значения из `Info.plist`, если Xcode не подхватил файл автоматически:
-   - `Privacy - Local Network Usage Description`.
-   - `App Transport Security Settings` → `Allow Arbitrary Loads` = `YES`.
-6. Подключите iPhone кабелем.
-7. В `Signing & Capabilities` выберите свой Apple ID / Team.
-8. Нажмите Run. При первом запуске iPhone попросит разрешить доступ к локальной сети — нажмите `Allow`.
-
-Бесплатный Apple ID обычно позволяет устанавливать приложение на свой iPhone для личного тестирования, но срок подписи ограничен. Для TestFlight нужен платный Apple Developer Program.
-
-## Как пользоваться
-
-1. Запустите сервер на ПК.
-2. Откройте веб-чат на ПК.
-3. Откройте iOS-приложение.
-4. Нажмите шестеренку и впишите адрес сервера, например:
-
-```text
-http://192.168.1.34:8765
-```
-
-5. Отправляйте текст, ссылки и файлы. Новые сообщения приходят через WebSocket почти мгновенно.
-
-## Важные замечания по безопасности
-
-- Сервер слушает локальную сеть без пароля, поэтому запускайте его только в доверенной Wi-Fi сети.
-- Для домашнего использования этого достаточно просто и быстро.
-- Для публичных сетей добавьте PIN-токен в HTTP-заголовок или включите VPN.
-- HTTP используется для простоты локального запуска. Для открытого интернета нужен HTTPS и авторизация.
-
-## Возможные улучшения
-
-- QR-код в веб-интерфейсе с адресом сервера для быстрого подключения iPhone.
-- PIN-код при первом подключении.
-- Превью изображений и видео.
-- Поиск по истории.
-- Автозапуск сервера при включении ПК.
+### Installation & Run
+1. Install the required dependencies:
+   ```bash
+   pip install -r pc_server/requirements.txt
+   ```
+2. Start the server:
+   ```bash
+   python pc_server/main.py
+   ```
+   *(Or use the ready-made scripts like `start_windows.ps1` or `start_macos.sh` inside the server folder).*
