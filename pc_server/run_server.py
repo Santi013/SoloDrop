@@ -17,6 +17,8 @@ def main() -> int:
     print(f"Pair PIN:  {base_url}/pair/code")
     print(f"QR PNG:    {base_url}/pair/qr")
     print("")
+    print("If iPhone cannot connect, allow SoloDrop through Windows Firewall for Private networks.")
+    print("")
 
     if not config.https_enabled:
         print("WARNING: running in HTTP development mode. Enable HTTPS for production.")

@@ -37,6 +37,8 @@ cd pc_server
 start_server.bat
 ```
 
+`start_server.bat` bootstraps a local `.venv` and installs `requirements.txt` when dependencies are missing. Installed builds run `SoloDropServer.exe` directly.
+
 Dev mode runs over HTTP by default. Production mode should set `https_enabled` to `true` in a local `pc_server/config.json` and provide `pc_server/certs/cert.pem` plus `pc_server/certs/key.pem`.
 
 ## Configuration

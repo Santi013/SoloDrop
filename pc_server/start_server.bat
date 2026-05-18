@@ -3,32 +3,51 @@ setlocal
 
 cd /d "%~dp0"
 
-set "SOLODROP_IP="
-for /f "usebackq delims=" %%I in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$ip=(Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } | Select-Object -First 1 -ExpandProperty IPv4Address).IPAddress; if (-not $ip) { $ip=(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '169.254.*' -and $_.IPAddress -ne '127.0.0.1' } | Select-Object -First 1 -ExpandProperty IPAddress) }; if ($ip) { $ip }"`) do set "SOLODROP_IP=%%I"
-if not defined SOLODROP_IP set "SOLODROP_IP=127.0.0.1"
-
 echo SoloDrop Server
-echo.
-echo Local URL: http://%SOLODROP_IP%:8000
-echo Health:    http://%SOLODROP_IP%:8000/health
-echo Pair PIN:  http://%SOLODROP_IP%:8000/pair/code
-echo QR PNG:    http://%SOLODROP_IP%:8000/pair/qr
-echo.
-echo If iPhone cannot connect, allow SoloDrop through Windows Firewall for Private networks.
 echo.
 
 if exist "SoloDropServer.exe" (
   "SoloDropServer.exe"
 ) else if exist "dist\SoloDropServer\SoloDropServer.exe" (
   "dist\SoloDropServer\SoloDropServer.exe"
-) else if exist ".venv\Scripts\python.exe" (
-  ".venv\Scripts\python.exe" "run_server.py"
 ) else (
-  py -3 "run_server.py"
+  call :ensure_dev_environment
+  if errorlevel 1 goto failed
+  ".venv\Scripts\python.exe" "run_server.py"
 )
 
-if errorlevel 1 (
-  echo.
-  echo SoloDrop Server stopped with an error.
-  pause
+if errorlevel 1 goto failed
+exit /b 0
+
+:ensure_dev_environment
+if not exist "requirements.txt" (
+  echo requirements.txt was not found in %CD%.
+  exit /b 1
 )
+
+if not exist ".venv\Scripts\python.exe" (
+  echo Creating local Python environment...
+  py -3 -m venv .venv
+  if errorlevel 1 (
+    echo Could not create .venv. Install Python 3.10+ and make sure the py launcher is available.
+    exit /b 1
+  )
+)
+
+".venv\Scripts\python.exe" -c "import fastapi, uvicorn, multipart, qrcode, zeroconf; from PIL import Image; import pillow_heif" >nul 2>nul
+if errorlevel 1 (
+  echo Installing SoloDrop server dependencies...
+  ".venv\Scripts\python.exe" -m pip install -r requirements.txt
+  if errorlevel 1 (
+    echo Dependency installation failed. Check your internet connection and Python installation.
+    exit /b 1
+  )
+)
+
+exit /b 0
+
+:failed
+echo.
+echo SoloDrop Server stopped with an error.
+pause
+exit /b 1
