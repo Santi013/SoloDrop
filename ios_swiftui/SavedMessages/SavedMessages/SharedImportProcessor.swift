@@ -1,42 +1,43 @@
 import Foundation
 
-@MainActor
 final class SharedImportProcessor {
-    private let store = SharedImportStore()
-    private let apiClient: APIClient
+    private let importStore = SharedImportStore()
+    private let localStore: LocalStore
+    private let deviceId: String
 
-    init(apiClient: APIClient) {
-        self.apiClient = apiClient
+    init(localStore: LocalStore, deviceId: String) {
+        self.localStore = localStore
+        self.deviceId = deviceId
     }
 
-    func processPendingImports() async throws -> Int {
-        let batches = try store.loadBatches()
+    func processPendingImports() throws -> Int {
+        let batches = try importStore.loadBatches()
         var processedCount = 0
 
         for batch in batches {
             for item in batch.items {
-                try await process(item)
+                try process(item)
                 processedCount += 1
             }
         }
 
         if processedCount > 0 {
-            try store.clearQueue()
+            try importStore.clearQueue()
         }
 
         return processedCount
     }
 
-    private func process(_ item: SharedImportItem) async throws {
+    private func process(_ item: SharedImportItem) throws {
         switch item.kind {
         case .url:
             guard let url = item.sourceURL else { return }
-            try await apiClient.sendText(url.absoluteString)
+            _ = try localStore.createTextItem(url.absoluteString, deviceId: deviceId)
 
         case .image, .video, .file:
             guard let relativePath = item.localRelativePath else { return }
-            let fileURL = try store.absoluteURL(for: relativePath)
-            try await apiClient.sendFile(fileURL: fileURL)
+            let fileURL = try importStore.absoluteURL(for: relativePath)
+            _ = try localStore.createFileItem(from: fileURL, deviceId: deviceId)
         }
     }
 }

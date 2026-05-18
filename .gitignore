@@ -2,33 +2,92 @@
 .DS_Store
 Thumbs.db
 desktop.ini
-.vscode/
 .idea/
+.vscode/
+*.swp
+*.bak
+*.tmp
 
-# Environment / secrets
+# Environment / local secrets
 .env
 .env.*
 !.env.example
+config.json
+pc_server/config.json
+!config.example.json
+!pc_server/config.example.json
 
 # Python
 __pycache__/
 *.py[cod]
 *.pyo
+*.pyd
 .Python
 .venv/
 venv/
 env/
+ENV/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 
-# SoloDrop local runtime data
-pc_server/data/
-pc_server/logs/
+# PyInstaller / build output
+build/
+Build/
+dist/
+out/
+bin/
+obj/
+*.spec
+*.exe
+*.msi
+
+# Inno Setup output
+Output/
+output/
+installer/
+pc_server/installer/
+*.iss.tmp
+
+# Logs / local databases
 *.log
+*.sqlite
 *.sqlite3
 *.sqlite3-shm
 *.sqlite3-wal
+*.db
+*.db-shm
+*.db-wal
+
+# SoloDrop runtime data
+data/
+uploads/
+cache/
+pc_server/data/
+pc_server/uploads/
+pc_server/cache/
+pc_server/logs/
+received/
+previews/
+qr*.png
+*qr-code*.png
+pairing*.json
+device-whitelist*.json
+session*.json
+
+# Private certs and keys
+cert.pem
+key.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.csr
+pc_server/certs/*.pem
+pc_server/certs/*.key
+pc_server/certs/*.p12
+pc_server/certs/*.pfx
+!pc_server/certs/README.md
 
 # Swift / Xcode
 .build/
@@ -39,13 +98,16 @@ xcuserdata/
 *.xcuserdatad/
 *.xcodeproj/xcuserdata/
 *.xcworkspace/xcuserdata/
+*.ipa
+*.dSYM/
+*.dSYM
 
-# Build output
-build/
-Build/
-bin/
-obj/
-dist/
-out/
-coverage/
+# Node / frontend caches
 node_modules/
+.next/
+.vite/
+.turbo/
+coverage/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*

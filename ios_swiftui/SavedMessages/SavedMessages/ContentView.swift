@@ -26,6 +26,9 @@ struct ContentView: View {
                                         message: message,
                                         serverAddress: store.serverAddress,
                                         isSaved: store.savedFileMessageIds.contains(message.id),
+                                        onRetry: {
+                                            store.retry(message: message)
+                                        },
                                         onLongPress: {
                                             withAnimation(.spring(response: 0.24, dampingFraction: 0.86)) {
                                                 selectedMenuMessage = message
@@ -123,12 +126,15 @@ struct ContentView: View {
                     .accessibilityLabel("История")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        isShowingSettings = true
-                    } label: {
-                        Image(systemName: "gearshape")
+                    HStack(spacing: 10) {
+                        ConnectionBadge(status: store.connectionStatus, isSyncing: store.isSyncing)
+                        Button {
+                            isShowingSettings = true
+                        } label: {
+                            Image(systemName: "gearshape")
+                        }
+                        .accessibilityLabel("Настройки")
                     }
-                    .accessibilityLabel("Настройки")
                 }
             }
         }
@@ -136,7 +142,19 @@ struct ContentView: View {
             store.start()
         }
         .sheet(isPresented: $isShowingSettings) {
-            SettingsView(serverAddress: $store.serverAddress, autosaveEnabled: $store.autosaveEnabled) {
+            SettingsView(
+                serverAddress: $store.serverAddress,
+                autosaveEnabled: $store.autosaveEnabled,
+                pairingCode: $store.pairingCode,
+                connectionStatus: store.connectionStatus,
+                pairingStatus: store.pairingStatus,
+                deviceId: store.deviceId,
+                discoveredServers: store.discoveredServers,
+                onSelectServer: store.select(server:),
+                onPair: store.pairWithCurrentServer,
+                onRetryFailed: store.retryFailedItems,
+                onForget: store.forgetServer
+            ) {
                 store.reconnect()
                 isShowingSettings = false
             }
@@ -173,6 +191,7 @@ struct MessageBubble: View {
     let message: Message
     let serverAddress: String
     let isSaved: Bool
+    let onRetry: () -> Void
     let onLongPress: () -> Void
 
     var body: some View {
@@ -186,10 +205,18 @@ struct MessageBubble: View {
                 Text(metaText)
                     .font(.caption2)
                     .foregroundStyle(message.isFromCurrentDevice ? .white.opacity(0.75) : .secondary)
-                if message.kind == "file" && isSaved {
+                if message.isFileBacked && isSaved {
                     Text("Файл сохранен")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(message.isFromCurrentDevice ? .white.opacity(0.8) : .secondary)
+                }
+                if message.syncStatus == .failed {
+                    Button(action: onRetry) {
+                        Label("Повторить", systemImage: "arrow.clockwise")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(message.isFromCurrentDevice ? .white : .blue)
                 }
             }
             .padding(.horizontal, 12)
@@ -207,11 +234,15 @@ struct MessageBubble: View {
 
     @ViewBuilder
     private var messageContent: some View {
-        if message.kind == "file",
-           let fileName = message.fileName,
-           let fileUrl = message.fileUrl,
-           let url = absoluteURL(path: message.previewUrl ?? fileUrl) {
-            Link(destination: url) {
+        if message.isFileBacked,
+           let fileName = message.fileName {
+            if let url = displayURL {
+                Link(destination: url) {
+                    Label(fileName, systemImage: "paperclip")
+                        .font(.body)
+                        .lineLimit(3)
+                }
+            } else {
                 Label(fileName, systemImage: "paperclip")
                     .font(.body)
                     .lineLimit(3)
@@ -230,7 +261,31 @@ struct MessageBubble: View {
     }
 
     private var metaText: String {
-        "\(message.sender == "ios" || message.sender == "iphone" ? "iPhone" : "ПК") · \(shortDate(message.createdAt))"
+        "\(message.sender == "ios" || message.sender == "iphone" ? "iPhone" : "ПК") · \(shortDate(message.createdAt)) · \(statusText)"
+    }
+
+    private var statusText: String {
+        switch message.syncStatus {
+        case .pending:
+            return "pending"
+        case .synced:
+            return "synced"
+        case .failed:
+            return "failed"
+        }
+    }
+
+    private var displayURL: URL? {
+        if let localFilePath = message.localFilePath {
+            return URL(fileURLWithPath: localFilePath)
+        }
+        if let previewUrl = message.previewUrl {
+            return absoluteURL(path: previewUrl)
+        }
+        if let fileUrl = message.fileUrl {
+            return absoluteURL(path: fileUrl)
+        }
+        return nil
     }
 
     private func absoluteURL(path: String) -> URL? {
@@ -253,9 +308,8 @@ struct MessageBubble: View {
     }
 
     private func copyMessage() {
-        if message.kind == "file",
-           let fileUrl = message.fileUrl,
-           let url = absoluteURL(path: fileUrl) {
+        if message.isFileBacked,
+           let url = displayURL {
             Task {
                 await copyFile(url: url, mimeType: message.mimeType)
             }
@@ -268,7 +322,13 @@ struct MessageBubble: View {
     @MainActor
     private func copyFile(url: URL, mimeType: String?) async {
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let data: Data
+            if url.isFileURL {
+                data = try Data(contentsOf: url)
+            } else {
+                let (remoteData, _) = try await URLSession.shared.data(from: url)
+                data = remoteData
+            }
             if mimeType?.hasPrefix("image/") == true,
                let image = UIImage(data: data) {
                 UIPasteboard.general.image = image
@@ -320,13 +380,22 @@ struct FixedMessageMenu: View {
     }
 
     private func copyMessage() {
-        if message.kind == "file",
-           let fileUrl = message.fileUrl,
-           let url = absoluteURL(path: fileUrl) {
+        if message.isFileBacked,
+           let url = displayURL {
             Task { await copyFile(url: url, mimeType: message.mimeType) }
         } else {
             UIPasteboard.general.string = message.text ?? ""
         }
+    }
+
+    private var displayURL: URL? {
+        if let localFilePath = message.localFilePath {
+            return URL(fileURLWithPath: localFilePath)
+        }
+        if let fileUrl = message.fileUrl {
+            return absoluteURL(path: fileUrl)
+        }
+        return nil
     }
 
     private func absoluteURL(path: String) -> URL? {
@@ -338,7 +407,13 @@ struct FixedMessageMenu: View {
     @MainActor
     private func copyFile(url: URL, mimeType: String?) async {
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let data: Data
+            if url.isFileURL {
+                data = try Data(contentsOf: url)
+            } else {
+                let (remoteData, _) = try await URLSession.shared.data(from: url)
+                data = remoteData
+            }
             if mimeType?.hasPrefix("image/") == true, let image = UIImage(data: data) {
                 UIPasteboard.general.image = image
             } else if let mimeType, let typeIdentifier = UTType(mimeType: mimeType)?.identifier {
@@ -459,6 +534,29 @@ struct DateDividerView: View {
     }
 }
 
+struct ConnectionBadge: View {
+    let status: String
+    let isSyncing: Bool
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
+            Text(isSyncing ? "syncing" : status.lowercased())
+                .font(.caption2.weight(.semibold))
+                .lineLimit(1)
+        }
+        .foregroundStyle(.secondary)
+        .accessibilityLabel("Статус подключения: \(status)")
+    }
+
+    private var color: Color {
+        if isSyncing { return .orange }
+        return status == "Онлайн" ? .green : .secondary
+    }
+}
+
 struct EmptyCurrentExchangeView: View {
     var body: some View {
         VStack(spacing: 8) {
@@ -515,20 +613,65 @@ struct ComposerBar: View {
 struct SettingsView: View {
     @Binding var serverAddress: String
     @Binding var autosaveEnabled: Bool
+    @Binding var pairingCode: String
+    let connectionStatus: String
+    let pairingStatus: String
+    let deviceId: String
+    let discoveredServers: [DiscoveredServer]
+    let onSelectServer: (DiscoveredServer) -> Void
+    let onPair: () -> Void
+    let onRetryFailed: () -> Void
+    let onForget: () -> Void
     let onSave: () -> Void
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Сервер на ПК") {
-                    TextField("http://192.168.1.10:8765", text: $serverAddress)
+                    TextField("http://solodrop.local:8000", text: $serverAddress)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
                         .autocorrectionDisabled()
+                    LabeledContent("Статус", value: connectionStatus)
+                    LabeledContent("Pairing", value: pairingStatus)
+                }
+
+                Section("Bonjour") {
+                    if discoveredServers.isEmpty {
+                        Text("Серверы не найдены")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(discoveredServers) { server in
+                            Button {
+                                onSelectServer(server)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(server.name)
+                                    Text(server.urlString)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Section("Pairing") {
+                    TextField("PIN с ПК", text: $pairingCode)
+                        .keyboardType(.numberPad)
+                    Button("Подключить", action: onPair)
+                    Text("Device ID: \(deviceId)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section {
                     Toggle("Автосохранение", isOn: $autosaveEnabled)
+                }
+
+                Section {
+                    Button("Повторить failed items", action: onRetryFailed)
+                    Button("Forget server", role: .destructive, action: onForget)
                 }
             }
             .navigationTitle("Настройки")

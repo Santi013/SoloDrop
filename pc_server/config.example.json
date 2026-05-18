@@ -1,0 +1,18 @@
+{
+  "host": "0.0.0.0",
+  "port": 8000,
+  "public_host": "solodrop.local",
+  "https_enabled": false,
+  "cert_path": "certs/cert.pem",
+  "key_path": "certs/key.pem",
+  "storage_dir": "data",
+  "uploads_dir": "data/uploads",
+  "previews_dir": "data/previews",
+  "database_path": "data/solodrop.sqlite3",
+  "mdns_enabled": true,
+  "pairing_enabled": true,
+  "pairing_code_ttl_seconds": 300,
+  "service_name": "SoloDrop",
+  "service_type": "_http._tcp.local.",
+  "mode": "dev"
+}

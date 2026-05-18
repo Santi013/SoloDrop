@@ -1,12 +1,44 @@
 import Foundation
-import UniformTypeIdentifiers
+
+struct SyncPushResponse: Decodable {
+    let processedItemIds: [String]
+    let serverTime: String?
+
+    enum CodingKeys: String, CodingKey {
+        case processedItemIds
+        case processedItemIdsSnake = "processed_item_ids"
+        case serverTime
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        processedItemIds = try container.decodeIfPresent([String].self, forKey: .processedItemIds)
+            ?? container.decodeIfPresent([String].self, forKey: .processedItemIdsSnake)
+            ?? []
+        serverTime = try container.decodeIfPresent(String.self, forKey: .serverTime)
+    }
+}
+
+struct SyncPullResponse: Decodable {
+    let items: [Message]
+    let cursor: String?
+    let serverTime: String?
+}
+
+struct PairingResult: Decodable {
+    let paired: Bool
+    let deviceId: String?
+    let serverUrl: String?
+}
 
 final class APIClient {
     var serverAddress: String
+    var deviceId: String
     private var webSocketTask: URLSessionWebSocketTask?
 
-    init(serverAddress: String) {
+    init(serverAddress: String, deviceId: String) {
         self.serverAddress = serverAddress
+        self.deviceId = deviceId
     }
 
     private var baseURL: URL {
@@ -14,47 +46,74 @@ final class APIClient {
         if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
             return URL(string: trimmed)!
         }
-        return URL(string: "http://\(trimmed)")!
+        return URL(string: "https://\(trimmed)")!
+    }
+
+    func checkHealth() async -> Bool {
+        do {
+            let url = baseURL.appendingPathComponent("health")
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 4
+            let (data, response) = try await URLSession.shared.data(for: request)
+            try validate(response: response)
+            let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            return object?["online"] as? Bool == true
+        } catch {
+            return false
+        }
     }
 
     func loadMessages() async throws -> [Message] {
-        let url = baseURL.appendingPathComponent("api/messages")
-        let (data, _) = try await URLSession.shared.data(from: url)
-        return try JSONDecoder().decode([Message].self, from: data)
+        let response = try await pullChanges(since: nil)
+        return response.items
     }
 
-    func sendText(_ text: String) async throws {
-        let url = baseURL.appendingPathComponent("api/messages")
+    func pair(code: String, deviceName: String) async throws -> PairingResult {
+        let url = baseURL.appendingPathComponent("pair/verify")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode([
-            "sender": "ios",
-            "text": text
+            "code": code,
+            "device_id": deviceId,
+            "device_name": deviceName
         ])
 
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request)
         try validate(response: response)
+        return try JSONDecoder().decode(PairingResult.self, from: data)
     }
 
-    func sendFile(fileURL: URL) async throws {
-        let canAccess = fileURL.startAccessingSecurityScopedResource()
-        defer {
-            if canAccess {
-                fileURL.stopAccessingSecurityScopedResource()
-            }
+    func push(items: [Message]) async throws -> SyncPushResponse {
+        let url = baseURL.appendingPathComponent("sync/push")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(SyncPushRequest(deviceId: deviceId, items: items))
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validate(response: response)
+        return try JSONDecoder().decode(SyncPushResponse.self, from: data)
+    }
+
+    func upload(item: Message) async throws -> Message {
+        guard let localFilePath = item.localFilePath else {
+            throw URLError(.fileDoesNotExist)
         }
 
+        let fileURL = URL(fileURLWithPath: localFilePath)
         let fileData = try Data(contentsOf: fileURL)
-        let fileName = fileURL.lastPathComponent
-        let resourceValues = try? fileURL.resourceValues(forKeys: [.contentTypeKey])
-        let mimeType = resourceValues?.contentType?.preferredMIMEType ?? "application/octet-stream"
+        let fileName = item.fileName ?? fileURL.lastPathComponent
+        let mimeType = item.mimeType ?? "application/octet-stream"
         let boundary = "Boundary-\(UUID().uuidString)"
 
         var body = Data()
-        body.appendMultipartField(name: "sender", value: "ios", boundary: boundary)
+        body.appendMultipartField(name: "client_item_id", value: item.id, boundary: boundary)
+        body.appendMultipartField(name: "device_id", value: deviceId, boundary: boundary)
+        body.appendMultipartField(name: "created_at", value: item.createdAt, boundary: boundary)
+        body.appendMultipartField(name: "updated_at", value: item.updatedAt, boundary: boundary)
         body.appendMultipartFile(
-            fieldName: "uploaded_file",
+            fieldName: "file",
             fileName: fileName,
             mimeType: mimeType,
             fileData: fileData,
@@ -62,14 +121,39 @@ final class APIClient {
         )
         body.appendString("--\(boundary)--\r\n")
 
-        let url = baseURL.appendingPathComponent("api/files")
+        let url = baseURL.appendingPathComponent("upload")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
 
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request)
         try validate(response: response)
+        let envelope = try JSONDecoder().decode(UploadEnvelope.self, from: data)
+        return envelope.metadata
+    }
+
+    func pullChanges(since: String?) async throws -> SyncPullResponse {
+        var components = URLComponents(url: baseURL.appendingPathComponent("sync/pull"), resolvingAgainstBaseURL: false)!
+        var items = [URLQueryItem(name: "device_id", value: deviceId)]
+        if let since {
+            items.append(URLQueryItem(name: "since", value: since))
+        }
+        components.queryItems = items
+
+        let (data, response) = try await URLSession.shared.data(from: components.url!)
+        try validate(response: response)
+        return try JSONDecoder().decode(SyncPullResponse.self, from: data)
+    }
+
+    func sendText(_ text: String) async throws {
+        let item = Message(type: text.hasPrefix("http") ? "link" : "text", text: text, deviceId: deviceId)
+        _ = try await push(items: [item])
+    }
+
+    func sendFile(fileURL: URL) async throws {
+        let item = Message(type: "file", localFilePath: fileURL.path, fileName: fileURL.lastPathComponent, deviceId: deviceId)
+        _ = try await upload(item: item)
     }
 
     func connectWebSocket(onMessage: @escaping (Message) -> Void, onStatus: @escaping (String) -> Void) {
@@ -78,6 +162,7 @@ final class APIClient {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
         components.scheme = components.scheme == "https" ? "wss" : "ws"
         components.path = "/ws"
+        components.queryItems = [URLQueryItem(name: "device_id", value: deviceId)]
 
         guard let webSocketURL = components.url else {
             onStatus("Неверный адрес сервера")
@@ -103,8 +188,7 @@ final class APIClient {
                 if case .string(let text) = event,
                    let data = text.data(using: .utf8),
                    let envelope = try? JSONDecoder().decode(WebSocketEnvelope.self, from: data),
-                   envelope.type == "message",
-                   let message = envelope.message {
+                   let message = envelope.item {
                     DispatchQueue.main.async {
                         onMessage(message)
                     }
@@ -113,7 +197,7 @@ final class APIClient {
 
             case .failure:
                 DispatchQueue.main.async {
-                    onStatus("Нет соединения")
+                    onStatus("Офлайн")
                 }
             }
         }
@@ -124,6 +208,20 @@ final class APIClient {
               (200...299).contains(httpResponse.statusCode) else {
             throw URLError(.badServerResponse)
         }
+    }
+}
+
+private struct UploadEnvelope: Decodable {
+    let metadata: Message
+}
+
+private struct SyncPushRequest: Encodable {
+    let deviceId: String
+    let items: [Message]
+
+    enum CodingKeys: String, CodingKey {
+        case deviceId = "device_id"
+        case items
     }
 }
 

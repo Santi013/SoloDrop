@@ -3,7 +3,7 @@ import UIKit
 import WebKit
 
 struct ContentView: View {
-    @AppStorage("serverAddress") private var serverAddress = "http://192.168.10.3:8765"
+    @AppStorage("serverAddress") private var serverAddress = "http://solodrop.local:8000"
     @AppStorage("autosaveEnabled") private var autosaveEnabled = false
     @State private var addressDraft = ""
     @State private var isShowingSettings = false
@@ -50,7 +50,7 @@ struct SettingsView: View {
         NavigationView {
             Form {
                 Section(header: Text("Адрес сервера SoloDrop")) {
-                    TextField("http://192.168.10.3:8765", text: $addressDraft)
+                    TextField("http://solodrop.local:8000", text: $addressDraft)
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
                         .keyboardType(.URL)

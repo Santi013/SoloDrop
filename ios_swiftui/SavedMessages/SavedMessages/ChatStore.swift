@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import UIKit
 
@@ -7,7 +8,11 @@ final class ChatStore: ObservableObject {
     @Published var draftText = ""
     @Published var connectionStatus = "Офлайн"
     @Published var errorText: String?
+    @Published var pairingCode = ""
+    @Published var pairingStatus = "Не подключено"
+    @Published var isSyncing = false
     @Published var savedFileMessageIds: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "savedFileMessageIds") ?? [])
+    @Published var discoveredServers: [DiscoveredServer] = []
     @Published var autosaveEnabled = UserDefaults.standard.bool(forKey: "autosaveEnabled") {
         didSet {
             UserDefaults.standard.set(autosaveEnabled, forKey: "autosaveEnabled")
@@ -24,33 +29,55 @@ final class ChatStore: ObservableObject {
         }
     }
 
-    private let apiClient: APIClient
-    private lazy var sharedImportProcessor = SharedImportProcessor(apiClient: apiClient)
+    let deviceId: String
 
-    init() {
-        let savedAddress = UserDefaults.standard.string(forKey: "serverAddress") ?? "http://192.168.1.10:8765"
-        self.serverAddress = savedAddress
-        self.apiClient = APIClient(serverAddress: savedAddress)
+    private let localStore: LocalStore
+    private let apiClient: APIClient
+    private let syncManager: SyncManager
+    private let networkMonitor = NetworkMonitor()
+    private let discoveryService = DiscoveryService()
+    private lazy var sharedImportProcessor = SharedImportProcessor(localStore: localStore, deviceId: deviceId)
+    private var started = false
+    private var retryTask: Task<Void, Never>?
+
+    init(
+        localStore: LocalStore = .shared,
+        savedAddress: String? = UserDefaults.standard.string(forKey: "serverAddress")
+    ) {
+        self.localStore = localStore
+        self.deviceId = ChatStore.loadDeviceId()
+        self.serverAddress = savedAddress ?? "http://solodrop.local:8000"
+        self.apiClient = APIClient(serverAddress: self.serverAddress, deviceId: self.deviceId)
+        self.syncManager = SyncManager(localStore: localStore, apiClient: apiClient)
+
+        discoveryService.$servers
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$discoveredServers)
     }
 
     func start() {
+        guard !started else { return }
+        started = true
+
+        loadLocalMessages()
+        discoveryService.start()
+        networkMonitor.start { [weak self] available in
+            guard let self else { return }
+            if available {
+                Task { await self.syncNow() }
+            } else {
+                self.connectionStatus = "Офлайн"
+            }
+        }
+
         Task {
             await processSharedImports()
-            await refresh()
-            connect()
+            await syncNow()
         }
     }
 
     func refresh() async {
-        do {
-            messages = try await apiClient.loadMessages()
-            sortMessages()
-            autosaveReceivedFiles(messages)
-            errorText = nil
-        } catch {
-            connectionStatus = "Нет соединения"
-            errorText = "Не удалось загрузить сообщения. Проверьте адрес сервера и Wi-Fi."
-        }
+        await syncNow()
     }
 
     func sendDraft() {
@@ -58,59 +85,175 @@ final class ChatStore: ObservableObject {
         guard !text.isEmpty else { return }
         draftText = ""
 
-        Task {
-            do {
-                try await apiClient.sendText(text)
-                errorText = nil
-            } catch {
-                draftText = text
-                errorText = "Не удалось отправить сообщение."
-            }
+        do {
+            let item = try localStore.createTextItem(text, deviceId: deviceId)
+            appendOrReplace(item)
+            sortMessages()
+            Task { await syncNow() }
+        } catch {
+            draftText = text
+            errorText = "Не удалось сохранить сообщение локально."
         }
     }
 
     func sendFile(fileURL: URL) {
-        Task {
-            do {
-                try await apiClient.sendFile(fileURL: fileURL)
-                errorText = nil
-            } catch {
-                errorText = "Не удалось отправить файл."
-            }
+        do {
+            let item = try localStore.createFileItem(from: fileURL, deviceId: deviceId)
+            appendOrReplace(item)
+            sortMessages()
+            Task { await syncNow() }
+        } catch {
+            errorText = "Не удалось сохранить файл локально."
         }
     }
 
     func processSharedImports() async {
         do {
-            let processedCount = try await sharedImportProcessor.processPendingImports()
+            let processedCount = try sharedImportProcessor.processPendingImports()
             if processedCount > 0 {
-                errorText = nil
+                loadLocalMessages()
+                await syncNow()
             }
         } catch SharedImportStore.StoreError.appGroupUnavailable {
             // The app can still run without the extension during local development.
         } catch {
-            errorText = "Не удалось отправить контент из окна «Поделиться»."
+            errorText = "Не удалось сохранить контент из окна «Поделиться»."
         }
     }
 
     func reconnect() {
         apiClient.disconnectWebSocket()
+        Task { await syncNow() }
+    }
+
+    func retry(message: Message) {
+        do {
+            try localStore.markPending(id: message.id)
+            loadLocalMessages()
+            Task { await syncNow() }
+        } catch {
+            errorText = "Не удалось поставить элемент в очередь повторной синхронизации."
+        }
+    }
+
+    func retryFailedItems() {
         Task {
-            await refresh()
+            do {
+                isSyncing = true
+                _ = try await syncManager.retryFailed()
+                loadLocalMessages()
+                errorText = nil
+            } catch {
+                errorText = "Повторная синхронизация пока недоступна."
+            }
+            isSyncing = false
+        }
+    }
+
+    func pairWithCurrentServer() {
+        let code = pairingCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !code.isEmpty else { return }
+
+        Task {
+            do {
+                let result = try await apiClient.pair(code: code, deviceName: UIDevice.current.name)
+                if result.paired {
+                    pairingStatus = "Подключено"
+                    pairingCode = ""
+                    if let serverUrl = result.serverUrl {
+                        serverAddress = serverUrl
+                    }
+                    await syncNow()
+                }
+            } catch {
+                pairingStatus = "PIN не принят"
+                errorText = "Не удалось выполнить pairing. Проверьте PIN-код на ПК."
+            }
+        }
+    }
+
+    func select(server: DiscoveredServer) {
+        serverAddress = server.urlString
+        pairingStatus = "Требуется PIN"
+    }
+
+    func forgetServer() {
+        apiClient.disconnectWebSocket()
+        serverAddress = "http://solodrop.local:8000"
+        pairingCode = ""
+        pairingStatus = "Не подключено"
+        connectionStatus = "Офлайн"
+    }
+
+    func syncNow() async {
+        guard await apiClient.checkHealth() else {
+            connectionStatus = "Офлайн"
+            return
+        }
+
+        connectionStatus = "Синхронизация"
+        isSyncing = true
+        do {
+            _ = try await syncManager.syncPendingItems()
+            loadLocalMessages()
+            autosaveReceivedFiles(messages)
             connect()
+            connectionStatus = "Онлайн"
+            pairingStatus = "Подключено"
+            errorText = nil
+        } catch {
+            loadLocalMessages()
+            connectionStatus = "Офлайн"
+            errorText = "Синхронизация отложена. Локальные данные сохранены."
+            scheduleRetry()
+        }
+        isSyncing = false
+    }
+
+    private func scheduleRetry() {
+        guard retryTask == nil else { return }
+        retryTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                _ = try await self.syncManager.retryFailed()
+                self.loadLocalMessages()
+                self.errorText = nil
+            } catch {
+                // Backoff retry is best-effort; visible failed items remain retryable in UI.
+            }
+            self.retryTask = nil
         }
     }
 
     private func connect() {
         apiClient.connectWebSocket { [weak self] message in
             guard let self else { return }
-            if !self.messages.contains(where: { $0.id == message.id }) {
-                self.messages.append(message)
-                self.sortMessages()
+            do {
+                try self.localStore.upsertRemote(message)
+                self.loadLocalMessages()
                 self.autosaveReceivedFiles([message])
+            } catch {
+                self.errorText = "Не удалось сохранить входящее обновление."
             }
         } onStatus: { [weak self] status in
             self?.connectionStatus = status
+        }
+    }
+
+    private func loadLocalMessages() {
+        do {
+            messages = try localStore.listItems()
+            sortMessages()
+        } catch {
+            errorText = "Не удалось открыть локальную историю."
+        }
+    }
+
+    private func appendOrReplace(_ item: Message) {
+        if let index = messages.firstIndex(where: { $0.id == item.id }) {
+            messages[index] = item
+        } else {
+            messages.append(item)
         }
     }
 
@@ -121,22 +264,33 @@ final class ChatStore: ObservableObject {
     private func autosaveReceivedFiles(_ candidates: [Message]) {
         guard autosaveEnabled else { return }
 
-        for message in candidates where message.kind == "file" && !message.isFromCurrentDevice && !savedFileMessageIds.contains(message.id) {
-            guard let fileUrl = message.fileUrl,
-                  let url = absoluteURL(path: fileUrl) else { continue }
-
+        for message in candidates where message.isFileBacked && !message.isFromCurrentDevice && !savedFileMessageIds.contains(message.id) {
             savedFileMessageIds.insert(message.id)
             persistSavedIds()
 
-            Task {
-                await saveFile(url: url, fileName: message.fileName ?? "solodrop-file", mimeType: message.mimeType ?? "application/octet-stream")
+            if let localPath = message.localFilePath {
+                Task {
+                    await saveFile(url: URL(fileURLWithPath: localPath), fileName: message.fileName ?? "solodrop-file", mimeType: message.mimeType ?? "application/octet-stream")
+                }
+            } else if let fileUrl = message.fileUrl,
+                      let url = absoluteURL(path: fileUrl) {
+                Task {
+                    await saveFile(url: url, fileName: message.fileName ?? "solodrop-file", mimeType: message.mimeType ?? "application/octet-stream")
+                }
             }
         }
     }
 
     private func saveFile(url: URL, fileName: String, mimeType: String) async {
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let data: Data
+            if url.isFileURL {
+                data = try Data(contentsOf: url)
+            } else {
+                let (remoteData, _) = try await URLSession.shared.data(from: url)
+                data = remoteData
+            }
+
             if mimeType.hasPrefix("image/"), let image = UIImage(data: data) {
                 UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
                 return
@@ -183,5 +337,14 @@ final class ChatStore: ObservableObject {
 
     private func persistSavedIds() {
         UserDefaults.standard.set(Array(Array(savedFileMessageIds).suffix(500)), forKey: "savedFileMessageIds")
+    }
+
+    private static func loadDeviceId() -> String {
+        if let existing = UserDefaults.standard.string(forKey: "deviceId") {
+            return existing
+        }
+        let created = UUID().uuidString
+        UserDefaults.standard.set(created, forKey: "deviceId")
+        return created
     }
 }

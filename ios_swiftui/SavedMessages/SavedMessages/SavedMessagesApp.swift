@@ -9,11 +9,19 @@ struct SavedMessagesApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(store)
+                .onAppear {
+                    BackgroundSyncScheduler.shared.register {
+                        await store.syncNow()
+                    }
+                }
                 .onChange(of: scenePhase) { newPhase in
-                    guard newPhase == .active else { return }
-
-                    Task {
-                        await store.processSharedImports()
+                    if newPhase == .active {
+                        Task {
+                            await store.processSharedImports()
+                            await store.syncNow()
+                        }
+                    } else if newPhase == .background {
+                        BackgroundSyncScheduler.shared.schedule()
                     }
                 }
         }
