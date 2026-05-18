@@ -28,12 +28,8 @@ final class LocalStore {
     private var initializationError: Error?
 
     private lazy var rootDirectory: URL = {
-        let documents = try! fileManager.url(
-            for: .documentDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
+        let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? fileManager.temporaryDirectory
         return documents.appendingPathComponent("SoloDrop", isDirectory: true)
     }()
 

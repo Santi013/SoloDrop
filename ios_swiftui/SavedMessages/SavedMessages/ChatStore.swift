@@ -39,6 +39,9 @@ final class ChatStore: ObservableObject {
     private lazy var sharedImportProcessor = SharedImportProcessor(localStore: localStore, deviceId: deviceId)
     private var started = false
     private var retryTask: Task<Void, Never>?
+    private var connectivityRetryTask: Task<Void, Never>?
+    private var connectivityRetryAttempt = 0
+    private let connectivityRetryDelays = [5, 15, 30, 60]
     private static let deviceTokenKey = "deviceToken"
     private static let pairedKey = "pairedDevice"
 
@@ -74,6 +77,7 @@ final class ChatStore: ObservableObject {
                 Task { await self.syncNow() }
             } else {
                 self.connectionStatus = "Офлайн"
+                self.scheduleConnectivityRetry()
             }
         }
 
@@ -151,7 +155,10 @@ final class ChatStore: ObservableObject {
                 loadLocalMessages()
                 errorText = nil
             } catch {
-                errorText = "Повторная синхронизация пока недоступна."
+                handleSyncError(error)
+                if errorText == nil {
+                    errorText = "Повторная синхронизация пока недоступна."
+                }
             }
             isSyncing = false
         }
@@ -206,8 +213,12 @@ final class ChatStore: ObservableObject {
     }
 
     func syncNow() async {
+        loadLocalMessages()
+
         guard await apiClient.checkHealth() else {
             connectionStatus = "Офлайн"
+            isSyncing = false
+            scheduleConnectivityRetry()
             return
         }
 
@@ -215,9 +226,11 @@ final class ChatStore: ObservableObject {
             apiClient.disconnectWebSocket()
             pairingStatus = "Требуется PIN"
             connectionStatus = "Требуется pairing"
+            isSyncing = false
             return
         }
 
+        resetConnectivityRetry()
         connectionStatus = "Синхронизация"
         isSyncing = true
         do {
@@ -230,11 +243,60 @@ final class ChatStore: ObservableObject {
             errorText = nil
         } catch {
             loadLocalMessages()
-            connectionStatus = "Офлайн"
-            errorText = "Синхронизация отложена. Локальные данные сохранены."
-            scheduleRetry()
+            handleSyncError(error)
         }
         isSyncing = false
+    }
+
+    private func handleSyncError(_ error: Error) {
+        if SyncManager.isAuthorizationError(error) {
+            apiClient.disconnectWebSocket()
+            clearPairingState()
+            pairingStatus = "Требуется PIN"
+            connectionStatus = "Требуется pairing"
+            errorText = "Pairing/token не принят сервером. Локальная история сохранена."
+            return
+        }
+
+        if SyncManager.isTransientNetworkError(error) {
+            connectionStatus = "Офлайн"
+            errorText = nil
+            scheduleConnectivityRetry()
+            return
+        }
+
+        connectionStatus = "Офлайн"
+        errorText = "Синхронизация отложена. Локальные данные сохранены."
+        scheduleRetry()
+    }
+
+    private func scheduleConnectivityRetry() {
+        guard connectivityRetryTask == nil else { return }
+        guard UserDefaults.standard.bool(forKey: Self.pairedKey) else { return }
+
+        let index = min(connectivityRetryAttempt, connectivityRetryDelays.count - 1)
+        let delay = connectivityRetryDelays[index]
+        connectivityRetryAttempt += 1
+
+        connectivityRetryTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000)
+            } catch {
+                return
+            }
+            await self?.runConnectivityRetry()
+        }
+    }
+
+    private func runConnectivityRetry() async {
+        connectivityRetryTask = nil
+        await syncNow()
+    }
+
+    private func resetConnectivityRetry() {
+        connectivityRetryAttempt = 0
+        connectivityRetryTask?.cancel()
+        connectivityRetryTask = nil
     }
 
     private func scheduleRetry() {
@@ -253,6 +315,7 @@ final class ChatStore: ObservableObject {
     }
 
     private func clearPairingState() {
+        resetConnectivityRetry()
         apiClient.deviceToken = nil
         UserDefaults.standard.removeObject(forKey: Self.deviceTokenKey)
         UserDefaults.standard.set(false, forKey: Self.pairedKey)

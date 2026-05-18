@@ -25,6 +25,7 @@ struct ContentView: View {
                                     MessageBubble(
                                         message: message,
                                         serverAddress: store.serverAddress,
+                                        connectionStatus: store.connectionStatus,
                                         isSaved: store.savedFileMessageIds.contains(message.id),
                                         onRetry: {
                                             store.retry(message: message)
@@ -190,6 +191,7 @@ struct ContentView: View {
 struct MessageBubble: View {
     let message: Message
     let serverAddress: String
+    let connectionStatus: String
     let isSaved: Bool
     let onRetry: () -> Void
     let onLongPress: () -> Void
@@ -267,6 +269,9 @@ struct MessageBubble: View {
     private var statusText: String {
         switch message.syncStatus {
         case .pending:
+            if connectionStatus == "Офлайн" || connectionStatus == "Требуется pairing" {
+                return "offline"
+            }
             return "pending"
         case .synced:
             return "synced"

@@ -46,6 +46,9 @@ final class SyncManager {
                 try await pushItem(item)
                 pushedCount += 1
             } catch {
+                if Self.isAuthorizationError(error) || Self.isTransientNetworkError(error) {
+                    throw error
+                }
                 try localStore.markFailed(id: item.id, error: error)
             }
         }
@@ -104,6 +107,43 @@ final class SyncManager {
             return 60
         default:
             return nil
+        }
+    }
+
+    static func isAuthorizationError(_ error: Error) -> Bool {
+        (error as? APIClientError) == .unauthorized
+    }
+
+    static func isTransientNetworkError(_ error: Error) -> Bool {
+        if let apiError = error as? APIClientError {
+            switch apiError {
+            case .invalidServerAddress, .unauthorized, .invalidResponse:
+                return true
+            case .httpStatus(let statusCode):
+                return statusCode == 408 || statusCode == 429 || (500...599).contains(statusCode)
+            }
+        }
+
+        guard let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .notConnectedToInternet,
+             .timedOut,
+             .cannotFindHost,
+             .cannotConnectToHost,
+             .networkConnectionLost,
+             .dnsLookupFailed,
+             .secureConnectionFailed,
+             .serverCertificateUntrusted,
+             .serverCertificateHasBadDate,
+             .serverCertificateHasUnknownRoot,
+             .serverCertificateNotYetValid,
+             .appTransportSecurityRequiresSecureConnection,
+             .internationalRoamingOff,
+             .callIsActive,
+             .dataNotAllowed:
+            return true
+        default:
+            return false
         }
     }
 }

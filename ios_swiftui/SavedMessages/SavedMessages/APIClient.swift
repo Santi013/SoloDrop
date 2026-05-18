@@ -1,5 +1,25 @@
 import Foundation
 
+enum APIClientError: LocalizedError, Equatable {
+    case invalidServerAddress
+    case unauthorized
+    case httpStatus(Int)
+    case invalidResponse
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidServerAddress:
+            return "Server address is invalid."
+        case .unauthorized:
+            return "Device pairing is required."
+        case .httpStatus(let statusCode):
+            return "Server returned HTTP \(statusCode)."
+        case .invalidResponse:
+            return "Server response is invalid."
+        }
+    }
+}
+
 struct SyncPushResponse: Decodable {
     let processedItemIds: [String]
     let serverTime: String?
@@ -44,16 +64,18 @@ final class APIClient {
         self.deviceToken = deviceToken
     }
 
-    private var baseURL: URL {
+    private var baseURL: URL? {
         let trimmed = serverAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
         if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
-            return URL(string: trimmed)!
+            return URL(string: trimmed)
         }
-        return URL(string: "https://\(trimmed)")!
+        return URL(string: "https://\(trimmed)")
     }
 
     func checkHealth() async -> Bool {
         do {
+            guard let baseURL else { return false }
             let url = baseURL.appendingPathComponent("health")
             var request = URLRequest(url: url)
             request.timeoutInterval = 4
@@ -72,9 +94,11 @@ final class APIClient {
     }
 
     func pair(code: String, deviceName: String) async throws -> PairingResult {
+        guard let baseURL else { throw APIClientError.invalidServerAddress }
         let url = baseURL.appendingPathComponent("pair/verify")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 8
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode([
             "code": code,
@@ -88,9 +112,11 @@ final class APIClient {
     }
 
     func push(items: [Message]) async throws -> SyncPushResponse {
+        guard let baseURL else { throw APIClientError.invalidServerAddress }
         let url = baseURL.appendingPathComponent("sync/push")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 12
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(SyncPushRequest(deviceId: deviceId, deviceToken: deviceToken, items: items))
 
@@ -100,12 +126,15 @@ final class APIClient {
     }
 
     func upload(item: Message) async throws -> Message {
+        guard let baseURL else { throw APIClientError.invalidServerAddress }
         guard let localFilePath = item.localFilePath else {
             throw URLError(.fileDoesNotExist)
         }
 
         let fileURL = URL(fileURLWithPath: localFilePath)
-        let fileData = try Data(contentsOf: fileURL)
+        let fileData = try await Task.detached(priority: .utility) {
+            try Data(contentsOf: fileURL)
+        }.value
         let fileName = item.fileName ?? fileURL.lastPathComponent
         let mimeType = item.mimeType ?? "application/octet-stream"
         let boundary = "Boundary-\(UUID().uuidString)"
@@ -130,6 +159,7 @@ final class APIClient {
         let url = baseURL.appendingPathComponent("upload")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 60
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
 
@@ -140,7 +170,10 @@ final class APIClient {
     }
 
     func pullChanges(since: String?) async throws -> SyncPullResponse {
-        var components = URLComponents(url: baseURL.appendingPathComponent("sync/pull"), resolvingAgainstBaseURL: false)!
+        guard let baseURL,
+              var components = URLComponents(url: baseURL.appendingPathComponent("sync/pull"), resolvingAgainstBaseURL: false) else {
+            throw APIClientError.invalidServerAddress
+        }
         var items = [URLQueryItem(name: "device_id", value: deviceId)]
         if let deviceToken {
             items.append(URLQueryItem(name: "device_token", value: deviceToken))
@@ -150,7 +183,10 @@ final class APIClient {
         }
         components.queryItems = items
 
-        let (data, response) = try await URLSession.shared.data(from: components.url!)
+        guard let url = components.url else { throw APIClientError.invalidServerAddress }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 12
+        let (data, response) = try await URLSession.shared.data(for: request)
         try validate(response: response)
         return try JSONDecoder().decode(SyncPullResponse.self, from: data)
     }
@@ -168,7 +204,11 @@ final class APIClient {
     func connectWebSocket(onMessage: @escaping (Message) -> Void, onStatus: @escaping (String) -> Void) {
         webSocketTask?.cancel(with: .goingAway, reason: nil)
 
-        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+        guard let baseURL,
+              var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            onStatus("Неверный адрес сервера")
+            return
+        }
         components.scheme = components.scheme == "https" ? "wss" : "ws"
         components.path = "/ws"
         var queryItems = [URLQueryItem(name: "device_id", value: deviceId)]
@@ -217,9 +257,14 @@ final class APIClient {
     }
 
     private func validate(response: URLResponse) throws {
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw URLError(.badServerResponse)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIClientError.invalidResponse
+        }
+        if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
+            throw APIClientError.unauthorized
+        }
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIClientError.httpStatus(httpResponse.statusCode)
         }
     }
 }
