@@ -36,15 +36,15 @@ if errorlevel 1 (
 echo.
 echo SoloDrop is starting.
 echo Open this address on this PC:
-echo http://127.0.0.1:8765
+echo http://127.0.0.1:8000
 echo.
 echo On iPhone, open:
-echo http://YOUR_PC_IP:8765
+echo http://YOUR_PC_IP:8000
 echo.
 echo Keep this window open. Press Ctrl+C to stop the server.
 echo.
 
-".venv\Scripts\python.exe" -m uvicorn main:app --host 0.0.0.0 --port 8765
+".venv\Scripts\python.exe" -m uvicorn main:app --host 0.0.0.0 --port 8000
 
 echo.
 echo SoloDrop stopped.

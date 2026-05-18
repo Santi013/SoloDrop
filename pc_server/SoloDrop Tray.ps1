@@ -8,7 +8,10 @@ $LogDir = Join-Path $AppDir "logs"
 $LogFile = Join-Path $LogDir "solodrop.log"
 $StartScript = Join-Path $AppDir "Start SoloDrop.cmd"
 $TrayIconPath = Join-Path $AppDir "static\icons\tray-icon.ico"
-$Port = 8765
+
+# УКАЖИ НУЖНЫЙ ПОРТ ЗДЕСЬ
+$Port = 8000
+
 $ServerProcess = $null
 
 if (-not (Test-Path $LogDir)) {
@@ -36,6 +39,7 @@ function Start-SoloDrop {
     }
 
     $arguments = "/c `"`"$StartScript`" --quiet >> `"$LogFile`" 2>&1`""
+
     $info = New-Object System.Diagnostics.ProcessStartInfo
     $info.FileName = "cmd.exe"
     $info.Arguments = $arguments
@@ -49,6 +53,7 @@ function Start-SoloDrop {
 
 function Stop-SoloDrop {
     $serverPid = Get-SoloDropPid
+
     if ($serverPid) {
         Stop-Process -Id $serverPid -Force -ErrorAction SilentlyContinue
     }
@@ -63,25 +68,29 @@ function Restart-SoloDrop {
 function Update-Tooltip {
     if (Test-SoloDropRunning) {
         $notifyIcon.Text = "SoloDrop is running on port $Port"
-    } else {
+    }
+    else {
         $notifyIcon.Text = "SoloDrop is stopped"
     }
 }
 
 $notifyIcon = New-Object System.Windows.Forms.NotifyIcon
+
 if (Test-Path $TrayIconPath) {
     $script:TrayIcon = New-Object System.Drawing.Icon $TrayIconPath
     $notifyIcon.Icon = $script:TrayIcon
-} else {
+}
+else {
     $notifyIcon.Icon = [System.Drawing.SystemIcons]::Application
 }
+
 $notifyIcon.Visible = $true
 
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 
 $openItem = $menu.Items.Add("Open SoloDrop")
 $openItem.Add_Click({
-    Start-Process "http://127.0.0.1:8765"
+    Start-Process "http://127.0.0.1:$Port"
 })
 
 $folderItem = $menu.Items.Add("Open Folder")
@@ -106,14 +115,20 @@ $stopItem.Add_Click({
 $exitItem = $menu.Items.Add("Exit")
 $exitItem.Add_Click({
     Stop-SoloDrop
+
     $notifyIcon.Visible = $false
-    if ($script:TrayIcon) { $script:TrayIcon.Dispose() }
+
+    if ($script:TrayIcon) {
+        $script:TrayIcon.Dispose()
+    }
+
     [System.Windows.Forms.Application]::Exit()
 })
 
 $notifyIcon.ContextMenuStrip = $menu
+
 $notifyIcon.Add_DoubleClick({
-    Start-Process "http://127.0.0.1:8765"
+    Start-Process "http://127.0.0.1:$Port"
 })
 
 Start-SoloDrop
@@ -121,7 +136,11 @@ Update-Tooltip
 
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 5000
-$timer.Add_Tick({ Update-Tooltip })
+
+$timer.Add_Tick({
+    Update-Tooltip
+})
+
 $timer.Start()
 
 [System.Windows.Forms.Application]::Run()
