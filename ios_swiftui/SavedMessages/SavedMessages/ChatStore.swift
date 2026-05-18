@@ -39,6 +39,8 @@ final class ChatStore: ObservableObject {
     private lazy var sharedImportProcessor = SharedImportProcessor(localStore: localStore, deviceId: deviceId)
     private var started = false
     private var retryTask: Task<Void, Never>?
+    private static let deviceTokenKey = "deviceToken"
+    private static let pairedKey = "pairedDevice"
 
     init(
         localStore: LocalStore = .shared,
@@ -47,8 +49,13 @@ final class ChatStore: ObservableObject {
         self.localStore = localStore
         self.deviceId = ChatStore.loadDeviceId()
         self.serverAddress = savedAddress ?? "http://solodrop.local:8000"
-        self.apiClient = APIClient(serverAddress: self.serverAddress, deviceId: self.deviceId)
+        self.apiClient = APIClient(
+            serverAddress: self.serverAddress,
+            deviceId: self.deviceId,
+            deviceToken: UserDefaults.standard.string(forKey: Self.deviceTokenKey)
+        )
         self.syncManager = SyncManager(localStore: localStore, apiClient: apiClient)
+        self.pairingStatus = UserDefaults.standard.bool(forKey: Self.pairedKey) ? "Подключено" : "Не подключено"
 
         discoveryService.$servers
             .receive(on: DispatchQueue.main)
@@ -156,10 +163,21 @@ final class ChatStore: ObservableObject {
 
         Task {
             do {
+                guard await apiClient.checkHealth() else {
+                    connectionStatus = "Офлайн"
+                    errorText = "SoloDrop Server недоступен. Проверьте /health и адрес сервера."
+                    return
+                }
+
                 let result = try await apiClient.pair(code: code, deviceName: UIDevice.current.name)
                 if result.paired {
                     pairingStatus = "Подключено"
                     pairingCode = ""
+                    UserDefaults.standard.set(true, forKey: Self.pairedKey)
+                    if let deviceToken = result.deviceToken {
+                        apiClient.deviceToken = deviceToken
+                        UserDefaults.standard.set(deviceToken, forKey: Self.deviceTokenKey)
+                    }
                     if let serverUrl = result.serverUrl {
                         serverAddress = serverUrl
                     }
@@ -174,6 +192,7 @@ final class ChatStore: ObservableObject {
 
     func select(server: DiscoveredServer) {
         serverAddress = server.urlString
+        clearPairingState()
         pairingStatus = "Требуется PIN"
     }
 
@@ -181,6 +200,7 @@ final class ChatStore: ObservableObject {
         apiClient.disconnectWebSocket()
         serverAddress = "http://solodrop.local:8000"
         pairingCode = ""
+        clearPairingState()
         pairingStatus = "Не подключено"
         connectionStatus = "Офлайн"
     }
@@ -188,6 +208,13 @@ final class ChatStore: ObservableObject {
     func syncNow() async {
         guard await apiClient.checkHealth() else {
             connectionStatus = "Офлайн"
+            return
+        }
+
+        guard UserDefaults.standard.bool(forKey: Self.pairedKey) else {
+            apiClient.disconnectWebSocket()
+            pairingStatus = "Требуется PIN"
+            connectionStatus = "Требуется pairing"
             return
         }
 
@@ -223,6 +250,12 @@ final class ChatStore: ObservableObject {
             }
             self.retryTask = nil
         }
+    }
+
+    private func clearPairingState() {
+        apiClient.deviceToken = nil
+        UserDefaults.standard.removeObject(forKey: Self.deviceTokenKey)
+        UserDefaults.standard.set(false, forKey: Self.pairedKey)
     }
 
     private func connect() {

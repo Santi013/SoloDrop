@@ -28,17 +28,20 @@ struct SyncPullResponse: Decodable {
 struct PairingResult: Decodable {
     let paired: Bool
     let deviceId: String?
+    let deviceToken: String?
     let serverUrl: String?
 }
 
 final class APIClient {
     var serverAddress: String
     var deviceId: String
+    var deviceToken: String?
     private var webSocketTask: URLSessionWebSocketTask?
 
-    init(serverAddress: String, deviceId: String) {
+    init(serverAddress: String, deviceId: String, deviceToken: String? = nil) {
         self.serverAddress = serverAddress
         self.deviceId = deviceId
+        self.deviceToken = deviceToken
     }
 
     private var baseURL: URL {
@@ -89,7 +92,7 @@ final class APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(SyncPushRequest(deviceId: deviceId, items: items))
+        request.httpBody = try JSONEncoder().encode(SyncPushRequest(deviceId: deviceId, deviceToken: deviceToken, items: items))
 
         let (data, response) = try await URLSession.shared.data(for: request)
         try validate(response: response)
@@ -110,6 +113,9 @@ final class APIClient {
         var body = Data()
         body.appendMultipartField(name: "client_item_id", value: item.id, boundary: boundary)
         body.appendMultipartField(name: "device_id", value: deviceId, boundary: boundary)
+        if let deviceToken {
+            body.appendMultipartField(name: "device_token", value: deviceToken, boundary: boundary)
+        }
         body.appendMultipartField(name: "created_at", value: item.createdAt, boundary: boundary)
         body.appendMultipartField(name: "updated_at", value: item.updatedAt, boundary: boundary)
         body.appendMultipartFile(
@@ -136,6 +142,9 @@ final class APIClient {
     func pullChanges(since: String?) async throws -> SyncPullResponse {
         var components = URLComponents(url: baseURL.appendingPathComponent("sync/pull"), resolvingAgainstBaseURL: false)!
         var items = [URLQueryItem(name: "device_id", value: deviceId)]
+        if let deviceToken {
+            items.append(URLQueryItem(name: "device_token", value: deviceToken))
+        }
         if let since {
             items.append(URLQueryItem(name: "since", value: since))
         }
@@ -162,7 +171,11 @@ final class APIClient {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
         components.scheme = components.scheme == "https" ? "wss" : "ws"
         components.path = "/ws"
-        components.queryItems = [URLQueryItem(name: "device_id", value: deviceId)]
+        var queryItems = [URLQueryItem(name: "device_id", value: deviceId)]
+        if let deviceToken {
+            queryItems.append(URLQueryItem(name: "device_token", value: deviceToken))
+        }
+        components.queryItems = queryItems
 
         guard let webSocketURL = components.url else {
             onStatus("Неверный адрес сервера")
@@ -217,10 +230,12 @@ private struct UploadEnvelope: Decodable {
 
 private struct SyncPushRequest: Encodable {
     let deviceId: String
+    let deviceToken: String?
     let items: [Message]
 
     enum CodingKeys: String, CodingKey {
         case deviceId = "device_id"
+        case deviceToken = "device_token"
         case items
     }
 }

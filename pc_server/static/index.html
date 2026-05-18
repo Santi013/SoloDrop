@@ -40,6 +40,19 @@
         </div>
       </header>
 
+      <section id="pairingPanel" class="pairing-panel" hidden aria-live="polite">
+        <div class="pairing-copy">
+          <strong>Pairing</strong>
+          <span id="pairingStatus">Проверка сервера...</span>
+          <small>Device ID: <code id="deviceIdLabel"></code></small>
+        </div>
+        <div class="pairing-actions">
+          <button id="requestPairCodeButton" class="secondary-button" type="button">Получить PIN</button>
+          <input id="pairingCodeInput" class="pairing-input" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="PIN" />
+          <button id="pairButton" class="primary-button" type="button">Подключить</button>
+        </div>
+      </section>
+
       <section id="messageList" class="message-list" aria-label="Лента сообщений"></section>
 
       <form id="composer" class="composer">

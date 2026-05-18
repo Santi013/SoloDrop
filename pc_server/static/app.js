@@ -44,10 +44,20 @@ const settingsButton = document.querySelector("#settingsButton");
 const settingsOverlay = document.querySelector("#settingsOverlay");
 const closeSettingsButton = document.querySelector("#closeSettingsButton");
 const autosaveToggle = document.querySelector("#autosaveToggle");
+const pairingPanel = document.querySelector("#pairingPanel");
+const pairingStatus = document.querySelector("#pairingStatus");
+const deviceIdLabel = document.querySelector("#deviceIdLabel");
+const requestPairCodeButton = document.querySelector("#requestPairCodeButton");
+const pairingCodeInput = document.querySelector("#pairingCodeInput");
+const pairButton = document.querySelector("#pairButton");
 const dropZone = document.querySelector("#dropZone");
 const toast = document.querySelector("#toast");
 
 const AUTOSAVE_KEY = `solodropAutosave:${currentDevice}`;
+const DEVICE_ID_KEY = "solodropDeviceId";
+const DEVICE_TOKEN_KEY = "solodropDeviceToken";
+const PAIRED_KEY = "solodropPaired";
+const deviceId = getOrCreateDeviceId();
 
 let allMessages = [];
 let autosavedMessageIds = new Set(JSON.parse(localStorage.getItem("solodropAutosavedMessageIds") || "[]"));
@@ -57,6 +67,72 @@ let selectedContextMessage = null;
 let longPressTimer = null;
 let dragDepth = 0;
 let sidebarTouchStartX = null;
+let activeSocket = null;
+let websocketReconnectTimer = null;
+
+function createUuid() {
+  if (window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+
+  return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (character) => {
+    const randomByte = window.crypto?.getRandomValues
+      ? window.crypto.getRandomValues(new Uint8Array(1))[0]
+      : Math.floor(Math.random() * 256);
+    const value = Number(character) ^ (randomByte & (15 >> (Number(character) / 4)));
+    return value.toString(16);
+  });
+}
+
+function getOrCreateDeviceId() {
+  const saved = localStorage.getItem(DEVICE_ID_KEY);
+  if (saved) return saved;
+
+  const created = createUuid();
+  localStorage.setItem(DEVICE_ID_KEY, created);
+  return created;
+}
+
+function getDeviceToken() {
+  return localStorage.getItem(DEVICE_TOKEN_KEY) || "";
+}
+
+function isPaired() {
+  return localStorage.getItem(PAIRED_KEY) === "true";
+}
+
+function setPairingCredentials(result = {}) {
+  localStorage.setItem(PAIRED_KEY, "true");
+  if (result.deviceToken) {
+    localStorage.setItem(DEVICE_TOKEN_KEY, result.deviceToken);
+  }
+}
+
+function clearPairingCredentials() {
+  localStorage.removeItem(PAIRED_KEY);
+  localStorage.removeItem(DEVICE_TOKEN_KEY);
+}
+
+function deviceName() {
+  return `SoloDrop ${currentDeviceLabel()}`;
+}
+
+function authSearchParams() {
+  const params = new URLSearchParams({ device_id: deviceId });
+  const token = getDeviceToken();
+  if (token) {
+    params.set("device_token", token);
+  }
+  return params;
+}
+
+function authUrl(path) {
+  const url = new URL(path, window.location.origin);
+  for (const [key, value] of authSearchParams()) {
+    url.searchParams.set(key, value);
+  }
+  return url.toString();
+}
 
 function formatTime(value) {
   return new Date(value).toLocaleString("ru-RU", {
@@ -145,6 +221,7 @@ function currentDeviceLabel() {
 
 function applyDeviceChrome() {
   document.body.dataset.device = currentDevice;
+  deviceIdLabel.textContent = deviceId;
   if (currentDevice === "ios") {
     clearChatButton.hidden = true;
     settingsButton.hidden = true;
@@ -178,6 +255,156 @@ function showToast(text) {
   showToast.timeoutId = window.setTimeout(() => {
     toast.hidden = true;
   }, 1300);
+}
+
+function setClientEnabled(enabled) {
+  composer.classList.toggle("disabled", !enabled);
+  messageInput.disabled = !enabled;
+  fileInput.disabled = !enabled;
+  composer.querySelector("button[type='submit']").disabled = !enabled;
+}
+
+function showPairingPanel(text) {
+  pairingPanel.hidden = false;
+  pairingStatus.textContent = text;
+  deviceIdLabel.textContent = deviceId;
+  setClientEnabled(false);
+}
+
+function hidePairingPanel() {
+  pairingPanel.hidden = true;
+  setClientEnabled(true);
+}
+
+async function checkServerHealth() {
+  const response = await fetch("/health", { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("Server health check failed");
+  }
+
+  const payload = await response.json();
+  if (payload.online !== true) {
+    throw new Error("Server is not online");
+  }
+  return payload;
+}
+
+async function verifyPairedDevice() {
+  if (!isPaired()) {
+    return false;
+  }
+
+  const response = await fetch(authUrl("/sync/pull?limit=1"), { cache: "no-store" });
+  if (response.status === 401 || response.status === 403) {
+    clearPairingCredentials();
+    return false;
+  }
+  if (!response.ok) {
+    throw new Error("Pairing verification failed");
+  }
+  return true;
+}
+
+async function requestPairCode() {
+  requestPairCodeButton.disabled = true;
+  try {
+    await checkServerHealth();
+    const response = await fetch("/pair/code", { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error("Could not create pairing code");
+    }
+
+    const payload = await response.json();
+    if (payload.pairingEnabled === false) {
+      setPairingCredentials(payload);
+      await startAuthorizedClient();
+      return;
+    }
+
+    pairingCodeInput.value = payload.code || "";
+    pairingStatus.textContent = payload.code ? `PIN ${payload.code}` : "Введите PIN с ПК";
+  } catch {
+    pairingStatus.textContent = "Сервер недоступен";
+    showToast("Не удалось получить PIN");
+  } finally {
+    requestPairCodeButton.disabled = false;
+  }
+}
+
+async function pairDevice() {
+  const code = pairingCodeInput.value.trim();
+  if (!code) {
+    pairingStatus.textContent = "Введите PIN";
+    pairingCodeInput.focus();
+    return;
+  }
+
+  pairButton.disabled = true;
+  try {
+    await checkServerHealth();
+    const response = await fetch("/pair/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        code,
+        device_id: deviceId,
+        device_name: deviceName(),
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Pairing failed");
+    }
+
+    const result = await response.json();
+    if (!result.paired) {
+      throw new Error("Pairing rejected");
+    }
+
+    setPairingCredentials(result);
+    pairingCodeInput.value = "";
+    await startAuthorizedClient();
+  } catch {
+    clearPairingCredentials();
+    pairingStatus.textContent = "PIN не принят";
+    showToast("Pairing не выполнен");
+  } finally {
+    pairButton.disabled = false;
+  }
+}
+
+async function startAuthorizedClient() {
+  hidePairingPanel();
+  connectionStatus.textContent = `Синхронизация · ${currentDeviceLabel()}`;
+  await loadMessages();
+  connectWebSocket();
+}
+
+async function bootstrapClient() {
+  setClientEnabled(false);
+  try {
+    await checkServerHealth();
+    if (await verifyPairedDevice()) {
+      await startAuthorizedClient();
+      return;
+    }
+
+    connectionStatus.textContent = `Требуется pairing · ${currentDeviceLabel()}`;
+    showPairingPanel("Введите PIN с ПК");
+  } catch {
+    connectionStatus.textContent = "Сервер недоступен";
+    showPairingPanel("Проверьте адрес SoloDrop Server");
+  }
+}
+
+function ensurePairedForSend() {
+  if (isPaired()) {
+    return true;
+  }
+
+  connectionStatus.textContent = `Требуется pairing · ${currentDeviceLabel()}`;
+  showPairingPanel("Введите PIN с ПК");
+  return false;
 }
 
 async function copyTextToClipboard(text) {
@@ -614,15 +841,24 @@ function fileFallbackLink(message) {
 
 async function loadMessages() {
   const response = await fetch("/api/messages");
-  const messages = await response.json();
+  const messages = (await response.json()).map(normalizeMessage).filter(Boolean);
   allMessages = mergeMessages(messages);
   await autosaveNewFiles(messages);
   renderMessageHistory();
 }
 
+function normalizeMessage(message) {
+  if (!message) return null;
+  return {
+    ...message,
+    kind: message.kind || message.type || "text",
+    fileUrl: message.fileUrl || message.remoteFileUrl || null,
+  };
+}
+
 function mergeMessages(messages) {
   const byId = new Map(allMessages.map((message) => [message.id, message]));
-  messages.forEach((message) => byId.set(message.id, message));
+  messages.map(normalizeMessage).filter(Boolean).forEach((message) => byId.set(message.id, message));
   return Array.from(byId.values()).sort((a, b) => parseMessageDate(a) - parseMessageDate(b));
 }
 
@@ -699,27 +935,50 @@ async function autosaveNewFiles(messages) {
 }
 
 async function sendText(text) {
+  const timestamp = new Date().toISOString();
   const response = await fetch("/api/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sender, text }),
+    body: JSON.stringify({
+      id: createUuid(),
+      sender,
+      text,
+      device_id: deviceId,
+      device_token: getDeviceToken(),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }),
   });
+  if (response.status === 401 || response.status === 403) {
+    clearPairingCredentials();
+    showPairingPanel("Pairing истек. Введите PIN заново");
+  }
   if (!response.ok) throw new Error("Не удалось отправить сообщение");
 }
 
 async function sendFile(file) {
   const formData = new FormData();
   formData.append("sender", sender);
+  formData.append("device_id", deviceId);
+  const token = getDeviceToken();
+  if (token) formData.append("device_token", token);
+  formData.append("client_item_id", createUuid());
   formData.append("uploaded_file", file);
 
   const response = await fetch("/api/files", {
     method: "POST",
     body: formData,
   });
+  if (response.status === 401 || response.status === 403) {
+    clearPairingCredentials();
+    showPairingPanel("Pairing истек. Введите PIN заново");
+  }
   if (!response.ok) throw new Error("Не удалось отправить файл");
 }
 
 async function sendDroppedFiles(files) {
+  if (!ensurePairedForSend()) return;
+
   const fileList = Array.from(files).filter((file) => file.size > 0);
   if (fileList.length === 0) return;
 
@@ -757,7 +1016,7 @@ async function clearChat() {
   const confirmed = window.confirm("Очистить весь чат и удалить загруженные файлы?");
   if (!confirmed) return;
 
-  const response = await fetch("/api/messages", {
+  const response = await fetch(authUrl("/api/messages"), {
     method: "DELETE",
   });
   if (!response.ok) {
@@ -774,21 +1033,35 @@ async function clearChat() {
 }
 
 function connectWebSocket() {
+  window.clearTimeout(websocketReconnectTimer);
+  if (activeSocket) {
+    activeSocket.soloDropIntentionalClose = true;
+    activeSocket.close(1000, "Reconnect");
+  }
+
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const socket = new WebSocket(`${protocol}://${window.location.host}/ws`);
+  const socket = new WebSocket(`${protocol}://${window.location.host}/ws?${authSearchParams().toString()}`);
+  activeSocket = socket;
+  let pingTimer = null;
 
   socket.addEventListener("open", () => {
     connectionStatus.textContent = `Онлайн в локальной сети · ${currentDeviceLabel()}`;
-    setInterval(() => socket.readyState === WebSocket.OPEN && socket.send("ping"), 25000);
+    pingTimer = window.setInterval(() => {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: "ping" }));
+      }
+    }, 25000);
   });
 
   socket.addEventListener("message", (event) => {
     const payload = JSON.parse(event.data);
-    if (payload.type === "message") {
-      allMessages = mergeMessages([payload.message]);
-      autosaveMessageFile(payload.message).then(() => renderMessageHistory());
+    if (payload.type === "message" || payload.type === "item.upserted") {
+      const message = normalizeMessage(payload.message || payload.payload);
+      if (!message) return;
+      allMessages = mergeMessages([message]);
+      autosaveMessageFile(message).then(() => renderMessageHistory());
     }
-    if (payload.type === "clear") {
+    if (payload.type === "clear" || payload.type === "items.cleared") {
       allMessages = [];
       messageList.innerHTML = "";
       hideMessageContextMenu();
@@ -796,14 +1069,34 @@ function connectWebSocket() {
     }
   });
 
-  socket.addEventListener("close", () => {
+  socket.addEventListener("close", (event) => {
+    if (pingTimer) {
+      window.clearInterval(pingTimer);
+    }
+    if (activeSocket === socket) {
+      activeSocket = null;
+    }
+    if (socket.soloDropIntentionalClose) {
+      return;
+    }
+    if (event.code === 1008) {
+      clearPairingCredentials();
+      connectionStatus.textContent = `Требуется pairing · ${currentDeviceLabel()}`;
+      showPairingPanel("Pairing истек. Введите PIN заново");
+      return;
+    }
+    if (!isPaired()) {
+      return;
+    }
     connectionStatus.textContent = "Переподключение...";
-    setTimeout(connectWebSocket, 1500);
+    websocketReconnectTimer = window.setTimeout(connectWebSocket, 1500);
   });
 }
 
 composer.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (!ensurePairedForSend()) return;
+
   const text = messageInput.value.trim();
   if (!text) return;
   messageInput.value = "";
@@ -824,8 +1117,21 @@ closeSettingsButton.addEventListener("click", closeSettings);
 settingsOverlay.addEventListener("click", (event) => {
   if (event.target === settingsOverlay) closeSettings();
 });
+requestPairCodeButton.addEventListener("click", requestPairCode);
+pairButton.addEventListener("click", pairDevice);
+pairingCodeInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    pairDevice();
+  }
+});
 
 fileInput.addEventListener("change", async () => {
+  if (!ensurePairedForSend()) {
+    fileInput.value = "";
+    return;
+  }
+
   const file = fileInput.files?.[0];
   if (!file) return;
   await sendFile(file);
@@ -903,8 +1209,7 @@ document.addEventListener("touchend", (event) => {
 }, { passive: true });
 
 applyDeviceChrome();
-loadMessages();
-connectWebSocket();
+bootstrapClient();
 
 closeViewerButton.addEventListener("click", closeImageViewer);
 imageViewer.addEventListener("click", (event) => {

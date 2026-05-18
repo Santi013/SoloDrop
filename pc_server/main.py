@@ -5,6 +5,8 @@ import json
 import logging
 import mimetypes
 import secrets
+import hashlib
+import hmac
 import shutil
 import socket
 import sqlite3
@@ -225,6 +227,7 @@ def initialize_database() -> None:
             CREATE TABLE IF NOT EXISTS devices (
                 device_id TEXT PRIMARY KEY,
                 device_name TEXT,
+                token_hash TEXT,
                 paired_at TEXT NOT NULL,
                 last_seen_at TEXT NOT NULL
             )
@@ -241,6 +244,9 @@ def initialize_database() -> None:
         )
         connection.execute("CREATE INDEX IF NOT EXISTS idx_items_updated_at ON items(updated_at)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_items_device_id ON items(device_id)")
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(devices)").fetchall()}
+        if "token_hash" not in columns:
+            connection.execute("ALTER TABLE devices ADD COLUMN token_hash TEXT")
         migrate_legacy_messages(connection)
         connection.commit()
 
@@ -481,28 +487,35 @@ def is_local_request(request: Request) -> bool:
     return request.client.host in {"127.0.0.1", "::1", "localhost"}
 
 
-def is_device_whitelisted(device_id: str | None) -> bool:
+def hash_device_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def is_device_whitelisted(device_id: str | None, device_token: str | None = None) -> bool:
     if not config.pairing_enabled:
         return True
     if not device_id:
         return False
     with database_connection() as connection:
-        row = connection.execute("SELECT device_id FROM devices WHERE device_id = ?", (device_id,)).fetchone()
+        row = connection.execute("SELECT device_id, token_hash FROM devices WHERE device_id = ?", (device_id,)).fetchone()
+        if row and row["token_hash"]:
+            if not device_token or not hmac.compare_digest(hash_device_token(device_token), row["token_hash"]):
+                return False
         if row:
             connection.execute("UPDATE devices SET last_seen_at = ? WHERE device_id = ?", (now_iso(), device_id))
             connection.commit()
         return row is not None
 
 
-def require_device(device_id: str | None) -> None:
-    if not is_device_whitelisted(device_id):
+def require_device(device_id: str | None, device_token: str | None = None) -> None:
+    if not is_device_whitelisted(device_id, device_token):
         raise HTTPException(status_code=403, detail="Device is not paired")
 
 
-def require_remote_or_paired(request: Request, device_id: str | None) -> None:
+def require_remote_or_paired(request: Request, device_id: str | None, device_token: str | None = None) -> None:
     if is_local_request(request):
         return
-    require_device(device_id)
+    require_device(device_id, device_token)
 
 
 class WebSocketHub:
@@ -685,6 +698,7 @@ def pair_verify(payload: dict[str, Any]) -> dict[str, Any]:
     code = str(payload.get("code", "")).strip()
     device_id = ensure_uuid(str(payload.get("device_id") or payload.get("deviceId") or ""))
     device_name = str(payload.get("device_name") or payload.get("deviceName") or "iPhone")
+    device_token = secrets.token_urlsafe(32)
 
     with database_connection() as connection:
         row = connection.execute("SELECT * FROM pairing_codes WHERE code = ?", (code,)).fetchone()
@@ -694,18 +708,19 @@ def pair_verify(payload: dict[str, Any]) -> dict[str, Any]:
         timestamp = now_iso()
         connection.execute(
             """
-            INSERT INTO devices (device_id, device_name, paired_at, last_seen_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO devices (device_id, device_name, token_hash, paired_at, last_seen_at)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(device_id) DO UPDATE SET
                 device_name = excluded.device_name,
+                token_hash = excluded.token_hash,
                 last_seen_at = excluded.last_seen_at
             """,
-            (device_id, device_name, timestamp, timestamp),
+            (device_id, device_name, hash_device_token(device_token), timestamp, timestamp),
         )
         connection.execute("DELETE FROM pairing_codes WHERE code = ?", (code,))
         connection.commit()
 
-    return {"paired": True, "deviceId": device_id, "serverUrl": server_base_url(get_lan_ip())}
+    return {"paired": True, "deviceId": device_id, "deviceToken": device_token, "serverUrl": server_base_url(get_lan_ip())}
 
 
 @app.get("/devices")
@@ -739,8 +754,12 @@ def list_messages(limit: int = 300) -> list[dict[str, Any]]:
 
 
 @app.delete("/api/messages")
-async def clear_messages(request: Request, device_id: str | None = Query(default=None)) -> dict[str, str]:
-    require_remote_or_paired(request, device_id)
+async def clear_messages(
+    request: Request,
+    device_id: str | None = Query(default=None),
+    device_token: str | None = Query(default=None),
+) -> dict[str, str]:
+    require_remote_or_paired(request, device_id, device_token)
     with database_connection() as connection:
         connection.execute("DELETE FROM items")
         connection.execute("DELETE FROM processed_items")
@@ -760,7 +779,8 @@ async def clear_messages(request: Request, device_id: str | None = Query(default
 @app.post("/api/messages")
 async def create_text_message(payload: dict[str, Any], request: Request) -> dict[str, Any]:
     device_id = payload.get("device_id") or payload.get("deviceId")
-    require_remote_or_paired(request, device_id)
+    device_token = payload.get("device_token") or payload.get("deviceToken")
+    require_remote_or_paired(request, device_id, device_token)
 
     sender = "ios" if payload.get("sender") == "iphone" else payload.get("sender", "pc")
     text = str(payload.get("text", "")).strip()
@@ -792,10 +812,11 @@ async def create_file_message(
     request: Request,
     sender: str = Form(default="pc"),
     device_id: str | None = Form(default=None),
+    device_token: str | None = Form(default=None),
     client_item_id: str | None = Form(default=None),
     uploaded_file: UploadFile = File(...),
 ) -> dict[str, Any]:
-    require_remote_or_paired(request, device_id)
+    require_remote_or_paired(request, device_id, device_token)
     item_id = client_item_id or str(uuid.uuid4())
     result = await save_uploaded_file(
         item_id=item_id,
@@ -812,11 +833,12 @@ async def upload_file(
     request: Request,
     client_item_id: str = Form(...),
     device_id: str = Form(...),
+    device_token: str | None = Form(default=None),
     file: UploadFile = File(...),
     created_at: str | None = Form(default=None),
     updated_at: str | None = Form(default=None),
 ) -> dict[str, Any]:
-    require_remote_or_paired(request, device_id)
+    require_remote_or_paired(request, device_id, device_token)
     result = await save_uploaded_file(
         item_id=client_item_id,
         upload=file,
@@ -908,7 +930,8 @@ def preview_file(preview_name: str) -> FileResponse:
 @app.post("/sync/push")
 async def sync_push(payload: dict[str, Any], request: Request) -> dict[str, Any]:
     device_id = payload.get("device_id") or payload.get("deviceId")
-    require_remote_or_paired(request, device_id)
+    device_token = payload.get("device_token") or payload.get("deviceToken")
+    require_remote_or_paired(request, device_id, device_token)
 
     items = payload.get("items")
     if not isinstance(items, list):
@@ -942,11 +965,12 @@ async def sync_push(payload: dict[str, Any], request: Request) -> dict[str, Any]
 def sync_pull(
     request: Request,
     device_id: str = Query(...),
+    device_token: str | None = Query(default=None),
     since: str | None = Query(default=None),
     cursor: str | None = Query(default=None),
     limit: int = Query(default=500, ge=1, le=1000),
 ) -> dict[str, Any]:
-    require_remote_or_paired(request, device_id)
+    require_remote_or_paired(request, device_id, device_token)
 
     since_value = cursor or since or "1970-01-01T00:00:00+00:00"
     with database_connection() as connection:
@@ -969,7 +993,8 @@ def sync_pull(
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
     device_id = websocket.query_params.get("device_id") or websocket.query_params.get("deviceId")
-    if not is_device_whitelisted(device_id):
+    device_token = websocket.query_params.get("device_token") or websocket.query_params.get("deviceToken")
+    if not is_device_whitelisted(device_id, device_token):
         await websocket.close(code=1008)
         return
 

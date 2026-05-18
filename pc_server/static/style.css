@@ -240,6 +240,95 @@ body.dragging-file {
   background: var(--background);
 }
 
+.pairing-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--background) 76%, var(--surface));
+}
+
+.pairing-panel[hidden] {
+  display: none;
+}
+
+.pairing-copy {
+  min-width: 0;
+}
+
+.pairing-copy strong,
+.pairing-copy span,
+.pairing-copy small {
+  display: block;
+}
+
+.pairing-copy strong {
+  font-size: 13px;
+}
+
+.pairing-copy span,
+.pairing-copy small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.pairing-copy code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.pairing-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.pairing-input {
+  width: 92px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: center;
+  letter-spacing: 0;
+}
+
+.primary-button,
+.secondary-button {
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.primary-button {
+  border: 1px solid var(--outgoing);
+  background: var(--outgoing);
+  color: var(--outgoing-text);
+}
+
+.secondary-button {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+}
+
+.primary-button:disabled,
+.secondary-button:disabled,
+.pairing-input:disabled {
+  opacity: 0.58;
+  cursor: default;
+}
+
 .clear-chat-button[hidden] {
   display: none;
 }
@@ -627,6 +716,22 @@ body.dragging-file {
     align-items: flex-start;
   }
 
+  .pairing-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .pairing-actions {
+    justify-content: stretch;
+  }
+
+  .pairing-actions button {
+    flex: 1 1 130px;
+  }
+
+  .pairing-input {
+    flex: 1 1 88px;
+  }
+
   .top-actions {
     flex-direction: column-reverse;
     align-items: flex-end;
@@ -714,6 +819,10 @@ body.dragging-file {
   padding: 12px;
   border-top: 1px solid var(--border);
   background: var(--surface);
+}
+
+.composer.disabled {
+  opacity: 0.62;
 }
 
 .composer input[type="text"] {
