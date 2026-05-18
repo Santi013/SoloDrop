@@ -8,6 +8,7 @@
   "storage_dir": "data",
   "uploads_dir": "data/uploads",
   "previews_dir": "data/previews",
+  "logs_dir": "logs",
   "database_path": "data/solodrop.sqlite3",
   "mdns_enabled": true,
   "pairing_enabled": true,

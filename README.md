@@ -41,7 +41,7 @@ Dev mode runs over HTTP by default. Production mode should set `https_enabled` t
 
 ## Configuration
 
-Commit only `pc_server/config.example.json`. For local runs, copy it to `pc_server/config.json` and edit that local file:
+Commit only `pc_server/config.example.json`. On first backend import/start, SoloDrop creates a local ignored `pc_server/config.json` from that example when it is missing. You can also create it manually and edit it:
 
 ```bat
 copy pc_server\config.example.json pc_server\config.json

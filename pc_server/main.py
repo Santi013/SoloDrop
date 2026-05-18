@@ -56,6 +56,7 @@ else:
     RESOURCE_DIR = SOURCE_DIR
 
 CONFIG_PATH = BASE_DIR / "config.json"
+CONFIG_EXAMPLE_PATH = BASE_DIR / "config.example.json"
 STATIC_DIR = RESOURCE_DIR / "static"
 if not STATIC_DIR.exists():
     STATIC_DIR = BASE_DIR / "static"
@@ -80,6 +81,7 @@ class ServerConfig:
     storage_dir: str = "data"
     uploads_dir: str = "data/uploads"
     previews_dir: str = "data/previews"
+    logs_dir: str = "logs"
     database_path: str = "data/solodrop.sqlite3"
     mdns_enabled: bool = True
     pairing_enabled: bool = True
@@ -91,7 +93,10 @@ class ServerConfig:
     @classmethod
     def load(cls) -> "ServerConfig":
         if not CONFIG_PATH.exists():
-            return cls()
+            if CONFIG_EXAMPLE_PATH.exists():
+                shutil.copyfile(CONFIG_EXAMPLE_PATH, CONFIG_PATH)
+            else:
+                return cls()
 
         with CONFIG_PATH.open("r", encoding="utf-8") as handle:
             raw = json.load(handle)
@@ -119,11 +124,13 @@ config = ServerConfig.load()
 DATA_DIR = config.resolve_path(config.storage_dir)
 UPLOADS_DIR = config.resolve_path(config.uploads_dir)
 PREVIEWS_DIR = config.resolve_path(config.previews_dir)
+LOGS_DIR = config.resolve_path(config.logs_dir)
 DATABASE_PATH = config.resolve_path(config.database_path)
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 PREVIEWS_DIR.mkdir(parents=True, exist_ok=True)
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def now_iso() -> str:
