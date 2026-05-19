@@ -42,6 +42,7 @@ final class ChatStore: ObservableObject {
     private var connectivityRetryTask: Task<Void, Never>?
     private var connectivityRetryAttempt = 0
     private let connectivityRetryDelays = [5, 15, 30, 60]
+    private static let defaultServerAddress = "http://solodrop.local:8000"
     private static let deviceTokenKey = "deviceToken"
     private static let pairedKey = "pairedDevice"
 
@@ -51,7 +52,7 @@ final class ChatStore: ObservableObject {
     ) {
         self.localStore = localStore
         self.deviceId = ChatStore.loadDeviceId()
-        self.serverAddress = savedAddress ?? "http://solodrop.local:8000"
+        self.serverAddress = ChatStore.normalizedServerAddress(savedAddress)
         self.apiClient = APIClient(
             serverAddress: self.serverAddress,
             deviceId: self.deviceId,
@@ -205,7 +206,7 @@ final class ChatStore: ObservableObject {
 
     func forgetServer() {
         apiClient.disconnectWebSocket()
-        serverAddress = "http://solodrop.local:8000"
+        serverAddress = Self.defaultServerAddress
         pairingCode = ""
         clearPairingState()
         pairingStatus = "Не подключено"
@@ -442,5 +443,36 @@ final class ChatStore: ObservableObject {
         let created = UUID().uuidString
         UserDefaults.standard.set(created, forKey: "deviceId")
         return created
+    }
+
+    private static func normalizedServerAddress(_ value: String?) -> String {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else {
+            UserDefaults.standard.set(defaultServerAddress, forKey: "serverAddress")
+            return defaultServerAddress
+        }
+
+        let withScheme = trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://")
+            ? trimmed
+            : "http://\(trimmed)"
+
+        guard var components = URLComponents(string: withScheme) else {
+            UserDefaults.standard.set(defaultServerAddress, forKey: "serverAddress")
+            return defaultServerAddress
+        }
+
+        if components.host == "localhost" || components.host == "127.0.0.1" || components.host == "::1" {
+            UserDefaults.standard.set(defaultServerAddress, forKey: "serverAddress")
+            return defaultServerAddress
+        }
+
+        if components.port == 8765 {
+            components.port = 8000
+        }
+
+        let normalized = components.url?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            ?? defaultServerAddress
+        UserDefaults.standard.set(normalized, forKey: "serverAddress")
+        return normalized
     }
 }

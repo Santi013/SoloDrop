@@ -11,17 +11,24 @@ final class BackgroundSyncScheduler {
 
     func register(handler: @escaping @MainActor () async -> Void) {
         guard !isRegistered else { return }
-        isRegistered = true
+        guard Self.isConfigured else { return }
 
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.taskIdentifier, using: nil) { task in
+        isRegistered = BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.taskIdentifier, using: nil) { task in
             self.handle(task: task, handler: handler)
         }
     }
 
     func schedule() {
+        guard isRegistered else { return }
         let request = BGAppRefreshTaskRequest(identifier: Self.taskIdentifier)
         request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
         try? BGTaskScheduler.shared.submit(request)
+    }
+
+    private static var isConfigured: Bool {
+        let permitted = Bundle.main.object(forInfoDictionaryKey: "BGTaskSchedulerPermittedIdentifiers") as? [String]
+        let modes = Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String]
+        return permitted?.contains(taskIdentifier) == true && modes?.contains("fetch") == true
     }
 
     private func handle(task: BGTask, handler: @escaping @MainActor () async -> Void) {

@@ -6,4 +6,4 @@ if [ ! -d ".venv" ]; then
 fi
 
 .venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8765
+.venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000

@@ -70,7 +70,7 @@ final class APIClient {
         if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
             return URL(string: trimmed)
         }
-        return URL(string: "https://\(trimmed)")
+        return URL(string: "http://\(trimmed)")
     }
 
     func checkHealth() async -> Bool {
