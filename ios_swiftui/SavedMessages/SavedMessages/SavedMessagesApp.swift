@@ -19,13 +19,14 @@ struct SavedMessagesApp: App {
             ContentView()
                 .environmentObject(store)
                 .onChange(of: scenePhase) { newPhase in
+                    print("[SoloDrop iOS] scenePhase changed \(String(describing: newPhase))")
                     if newPhase == .active {
-                        Task {
-                            await store.processSharedImports()
-                            await store.syncNow()
-                        }
+                        store.appDidBecomeActive()
                     } else if newPhase == .background {
+                        store.appDidEnterBackground()
                         BackgroundSyncScheduler.shared.schedule()
+                    } else if newPhase == .inactive {
+                        store.appWillResignActive()
                     }
                 }
         }

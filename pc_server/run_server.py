@@ -11,8 +11,10 @@ from main import config, get_lan_ip, server_base_url, uvicorn_kwargs
 def main() -> int:
     ip = get_lan_ip()
     base_url = server_base_url(ip)
+    stable_url = server_base_url()
     print("SoloDrop Server")
     print(f"Local URL: {base_url}")
+    print(f"Bonjour:   {stable_url}")
     print(f"Health:    {base_url}/health")
     print(f"Pair PIN:  {base_url}/pair/code")
     print(f"QR PNG:    {base_url}/pair/qr")

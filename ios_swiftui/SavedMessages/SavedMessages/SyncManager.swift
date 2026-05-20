@@ -3,12 +3,29 @@ import Foundation
 enum SyncConnectionState: Equatable {
     case offline
     case online
+    case connecting
     case syncing
+}
+
+enum ManualRefreshState: Equatable {
+    case idle
+    case refreshing
+    case reconnecting
+    case syncing
+    case failed
+    case offline
 }
 
 struct SyncSummary {
     let pushedCount: Int
     let pulledCount: Int
+    let retriedCount: Int
+}
+
+struct SyncPullSummary {
+    let receivedCount: Int
+    let upsertedCount: Int
+    let cursor: String?
 }
 
 @MainActor
@@ -28,15 +45,24 @@ final class SyncManager {
         await healthChecker.isServerReachable()
     }
 
-    func syncPendingItems() async throws -> SyncSummary {
+    func syncPendingItems(includeRetryableFailed: Bool = false) async throws -> SyncSummary {
         guard !isSyncing else {
-            return SyncSummary(pushedCount: 0, pulledCount: 0)
+            return SyncSummary(pushedCount: 0, pulledCount: 0, retriedCount: 0)
         }
         isSyncing = true
         defer { isSyncing = false }
 
         guard await healthChecker.isServerReachable() else {
             throw URLError(.cannotConnectToHost)
+        }
+
+        var retriedCount = 0
+        if includeRetryableFailed {
+            let failed = try localStore.getRetryableFailedItems()
+            for item in failed {
+                try localStore.markPending(id: item.id)
+                retriedCount += 1
+            }
         }
 
         var pushedCount = 0
@@ -54,7 +80,11 @@ final class SyncManager {
         }
 
         let pullResponse = try await pullChanges()
-        return SyncSummary(pushedCount: pushedCount, pulledCount: pullResponse.items.count)
+        return SyncSummary(
+            pushedCount: pushedCount,
+            pulledCount: pullResponse.upsertedCount,
+            retriedCount: retriedCount
+        )
     }
 
     func retryFailed() async throws -> SyncSummary {
@@ -75,7 +105,8 @@ final class SyncManager {
             try localStore.markSynced(item, remote: remote)
         } else {
             let response = try await apiClient.push(items: [item])
-            guard response.processedItemIds.contains(item.id) else {
+            let processedIDs = Set(response.processedItemIds.map(Message.canonicalID))
+            guard processedIDs.contains(item.canonicalID) else {
                 throw URLError(.badServerResponse)
             }
             try localStore.markSynced(item)
@@ -83,16 +114,23 @@ final class SyncManager {
     }
 
     @discardableResult
-    func pullChanges() async throws -> SyncPullResponse {
+    func pullChanges() async throws -> SyncPullSummary {
         let since = try localStore.lastSyncAt()
         let response = try await apiClient.pullChanges(since: since)
+        var upsertedCount = 0
         for item in response.items {
-            try localStore.upsertRemote(item)
+            if try localStore.upsertRemote(item) {
+                upsertedCount += 1
+            }
         }
         if let cursor = response.cursor ?? response.serverTime {
             try localStore.setLastSyncAt(cursor)
         }
-        return response
+        return SyncPullSummary(
+            receivedCount: response.items.count,
+            upsertedCount: upsertedCount,
+            cursor: response.cursor ?? response.serverTime
+        )
     }
 
     func retryDelaySeconds(for retryCount: Int) -> Int? {
@@ -111,7 +149,15 @@ final class SyncManager {
     }
 
     static func isAuthorizationError(_ error: Error) -> Bool {
-        (error as? APIClientError) == .unauthorized
+        guard let apiError = error as? APIClientError else { return false }
+        switch apiError {
+        case .unauthorized:
+            return true
+        case .serverStatus(let statusCode, _):
+            return statusCode == 401 || statusCode == 403
+        default:
+            return false
+        }
     }
 
     static func isTransientNetworkError(_ error: Error) -> Bool {
@@ -120,6 +166,8 @@ final class SyncManager {
             case .invalidServerAddress, .unauthorized, .invalidResponse:
                 return true
             case .httpStatus(let statusCode):
+                return statusCode == 408 || statusCode == 429 || (500...599).contains(statusCode)
+            case .serverStatus(let statusCode, _):
                 return statusCode == 408 || statusCode == 429 || (500...599).contains(statusCode)
             }
         }

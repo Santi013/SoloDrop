@@ -9,6 +9,8 @@ struct ContentView: View {
     @State private var isShowingSidebar = false
     @State private var selectedDateKey: String?
     @State private var selectedMenuMessage: Message?
+    @State private var didDismissKeyboardForDrag = false
+    @FocusState private var composerFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -44,6 +46,21 @@ struct ContentView: View {
                         .padding(.vertical, 12)
                     }
                     .background(Color(.systemGroupedBackground))
+                    .scrollDismissesKeyboard(.interactively)
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 2)
+                            .onChanged { _ in
+                                dismissKeyboardForInteraction(reason: "message scroll")
+                            }
+                            .onEnded { _ in
+                                didDismissKeyboardForDrag = false
+                            }
+                    )
+                    .refreshable {
+                        dismissKeyboardForInteraction(reason: "pull-to-refresh", oncePerDrag: false)
+                        await store.refresh()
+                        didDismissKeyboardForDrag = false
+                    }
 
                     if let errorText = store.errorText {
                         Text(errorText)
@@ -55,8 +72,13 @@ struct ContentView: View {
                             .background(Color(.systemBackground))
                     }
 
+                    if let syncResultText = store.syncResultText {
+                        SyncResultBanner(text: syncResultText)
+                    }
+
                     ComposerBar(
                         text: $store.draftText,
+                        isFocused: $composerFocused,
                         onAttach: { isShowingFileImporter = true },
                         onSend: store.sendDraft
                     )
@@ -144,17 +166,28 @@ struct ContentView: View {
         }
         .sheet(isPresented: $isShowingSettings) {
             SettingsView(
-                serverAddress: $store.serverAddress,
+                serverAddress: store.serverAddress,
+                manualServerAddress: $store.manualServerAddress,
+                manualServerOverrideEnabled: $store.manualServerOverrideEnabled,
                 autosaveEnabled: $store.autosaveEnabled,
                 pairingCode: $store.pairingCode,
                 connectionStatus: store.connectionStatus,
+                restHealthStatus: store.restHealthStatus,
+                webSocketStatus: store.webSocketStatus,
+                discoveryStatus: store.discoveryStatus,
                 pairingStatus: store.pairingStatus,
+                connectedServerInfo: store.connectedServerInfo,
+                trustedDeviceStatus: store.trustedDeviceStatus,
+                errorText: store.errorText,
                 deviceId: store.deviceId,
                 discoveredServers: store.discoveredServers,
                 onSelectServer: store.select(server:),
+                onUseBonjour: { store.useBonjourDiscovery() },
+                onApplyManualServer: { store.applyManualServerOverride() },
                 onPair: store.pairWithCurrentServer,
                 onRetryFailed: store.retryFailedItems,
-                onForget: store.forgetServer
+                onResetPairing: store.resetPairing,
+                onReconnect: store.reconnect
             ) {
                 store.reconnect()
                 isShowingSettings = false
@@ -185,6 +218,16 @@ struct ContentView: View {
             HistoryDayGroup(key: key, title: dateTitle(for: key), count: messages.count)
         }
         .sorted { $0.key > $1.key }
+    }
+
+    private func dismissKeyboardForInteraction(reason: String, oncePerDrag: Bool = true) {
+        if oncePerDrag, didDismissKeyboardForDrag {
+            return
+        }
+        didDismissKeyboardForDrag = true
+        print("[SoloDrop iOS] keyboard dismiss trigger reason=\(reason)")
+        composerFocused = false
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 }
 
@@ -558,7 +601,24 @@ struct ConnectionBadge: View {
 
     private var color: Color {
         if isSyncing { return .orange }
-        return status == "Онлайн" ? .green : .secondary
+        if status == "Онлайн" { return .green }
+        if status == "Подключение" || status == "Переподключение" || status == "Синхронизация" { return .orange }
+        return .secondary
+    }
+}
+
+struct SyncResultBanner: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .background(Color(.systemBackground))
+            .accessibilityLabel(text)
     }
 }
 
@@ -580,6 +640,7 @@ struct EmptyCurrentExchangeView: View {
 
 struct ComposerBar: View {
     @Binding var text: String
+    let isFocused: FocusState<Bool>.Binding
     let onAttach: () -> Void
     let onSend: () -> Void
 
@@ -595,6 +656,7 @@ struct ComposerBar: View {
             TextField("Сообщение или ссылка", text: $text, axis: .vertical)
                 .lineLimit(1...4)
                 .textFieldStyle(.plain)
+                .focused(isFocused)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(Color(.secondarySystemGroupedBackground))
@@ -616,32 +678,47 @@ struct ComposerBar: View {
 }
 
 struct SettingsView: View {
-    @Binding var serverAddress: String
+    let serverAddress: String
+    @Binding var manualServerAddress: String
+    @Binding var manualServerOverrideEnabled: Bool
     @Binding var autosaveEnabled: Bool
     @Binding var pairingCode: String
     let connectionStatus: String
+    let restHealthStatus: String
+    let webSocketStatus: String
+    let discoveryStatus: String
     let pairingStatus: String
+    let connectedServerInfo: String
+    let trustedDeviceStatus: String
+    let errorText: String?
     let deviceId: String
     let discoveredServers: [DiscoveredServer]
     let onSelectServer: (DiscoveredServer) -> Void
+    let onUseBonjour: () -> Void
+    let onApplyManualServer: () -> Void
     let onPair: () -> Void
     let onRetryFailed: () -> Void
-    let onForget: () -> Void
+    let onResetPairing: () -> Void
+    let onReconnect: () -> Void
     let onSave: () -> Void
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Сервер на ПК") {
-                    TextField("http://solodrop.local:8000", text: $serverAddress)
-                        .textInputAutocapitalization(.never)
-                        .keyboardType(.URL)
-                        .autocorrectionDisabled()
+                    LabeledContent("Адрес", value: serverAddress)
                     LabeledContent("Статус", value: connectionStatus)
+                    LabeledContent("REST", value: restHealthStatus)
+                    LabeledContent("WebSocket", value: webSocketStatus)
+                    LabeledContent("Bonjour", value: discoveryStatus)
                     LabeledContent("Pairing", value: pairingStatus)
+                    LabeledContent("Trusted", value: trustedDeviceStatus)
+                    Text(connectedServerInfo)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
-                Section("Bonjour") {
+                Section("Bonjour discovery") {
                     if discoveredServers.isEmpty {
                         Text("Серверы не найдены")
                             .foregroundStyle(.secondary)
@@ -659,14 +736,38 @@ struct SettingsView: View {
                             }
                         }
                     }
+                    Button("Использовать Bonjour / solodrop.local", action: onUseBonjour)
+                    if manualServerOverrideEnabled {
+                        Text("Manual override включён: Bonjour показывается, но не меняет активный адрес автоматически.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Section("Pairing") {
                     TextField("PIN с ПК", text: $pairingCode)
                         .keyboardType(.numberPad)
-                    Button("Подключить", action: onPair)
+                    Button(pairingStatus == "Подключено" ? "Re-pair с PIN" : "Подключить по PIN", action: onPair)
+                        .disabled(pairingCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    if let errorText {
+                        Text(errorText)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
                     Text("Device ID: \(deviceId)")
                         .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Manual override") {
+                    Toggle("Включить manual server address", isOn: $manualServerOverrideEnabled)
+                    TextField("http://192.168.1.10:8000", text: $manualServerAddress)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.URL)
+                        .autocorrectionDisabled()
+                    Button("Применить manual address", action: onApplyManualServer)
+                    Text("Backup/debug режим. Для обычного подключения используется Bonjour и stable hostname solodrop.local.")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
@@ -675,8 +776,9 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Button("Переподключиться", action: onReconnect)
                     Button("Повторить failed items", action: onRetryFailed)
-                    Button("Forget server", role: .destructive, action: onForget)
+                    Button("Disconnect / reset pairing", role: .destructive, action: onResetPairing)
                 }
             }
             .navigationTitle("Настройки")

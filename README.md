@@ -75,10 +75,12 @@ The installer output is `pc_server/installer/SoloDropSetup.exe`. Do not commit i
 
 1. Start the Windows server.
 2. Open `http://<PC-IP>:8000/pair/code` on the PC to get a PIN.
-3. Open the iOS app settings.
-4. Choose a discovered Bonjour server or enter `http://<PC-IP>:8000`.
-5. Enter the PIN and pair the device.
-6. The iPhone stores the server config locally and syncs pending items when the server is reachable.
+3. Open the iOS app settings with the gear icon.
+4. Wait for Bonjour discovery to find `solodrop.local`.
+5. Enter the PIN in Settings and pair the device.
+6. The iPhone stores the trusted device token locally and reconnects through `http://solodrop.local:8000`.
+
+Manual IP entry remains available in Settings under Manual override as a backup/debug option only.
 
 The QR endpoint `GET /pair/qr` contains the server URL, pairing endpoints, IP/port, and manual fallback data.
 
@@ -110,11 +112,11 @@ Allow SoloDrop/Python through Windows Firewall on Private networks. The server l
 
 ### iPhone Does Not See Server
 
-Make sure both devices are on the same LAN/Wi-Fi, the server is running, and `http://<PC-IP>:8000/health` returns `online: true`.
+Make sure both devices are on the same LAN/Wi-Fi, the server is running, and `http://solodrop.local:8000/health` returns `online: true`. If Bonjour is blocked on the network, use Settings → Manual override and enter `http://<PC-IP>:8000` as a temporary debug fallback.
 
 ### mDNS/Bonjour Does Not Work
 
-Use manual IP entry or QR setup. The server continues running even if Bonjour registration fails.
+Use the Manual override section in iOS Settings or QR setup as a backup/debug path. The server continues running even if Bonjour registration fails.
 
 ### HTTPS Certificate Warning
 

@@ -35,12 +35,16 @@ struct Message: Identifiable, Codable, Equatable {
         type == "file" || type == "media"
     }
 
+    var canonicalID: String {
+        Self.canonicalID(id)
+    }
+
     var date: Date {
         DateFormatter.solodropDate(from: createdAt) ?? .distantPast
     }
 
     init(
-        id: String = UUID().uuidString,
+        id: String = UUID().uuidString.lowercased(),
         type: String,
         sender: String = "ios",
         text: String? = nil,
@@ -57,7 +61,7 @@ struct Message: Identifiable, Codable, Equatable {
         serverId: String? = nil,
         deviceId: String? = nil
     ) {
-        self.id = id
+        self.id = Self.storedID(id)
         self.type = type
         self.sender = sender
         self.text = text
@@ -71,7 +75,7 @@ struct Message: Identifiable, Codable, Equatable {
         self.syncStatus = syncStatus
         self.retryCount = retryCount
         self.lastError = lastError
-        self.serverId = serverId
+        self.serverId = serverId.map(Self.storedID)
         self.deviceId = deviceId
     }
 
@@ -98,7 +102,7 @@ struct Message: Identifiable, Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(String.self, forKey: .id)
+        id = Self.storedID(try container.decode(String.self, forKey: .id))
         type = try container.decodeIfPresent(String.self, forKey: .type)
             ?? container.decodeIfPresent(String.self, forKey: .kind)
             ?? "text"
@@ -116,8 +120,47 @@ struct Message: Identifiable, Codable, Equatable {
         syncStatus = try container.decodeIfPresent(SyncStatus.self, forKey: .syncStatus) ?? .synced
         retryCount = try container.decodeIfPresent(Int.self, forKey: .retryCount) ?? 0
         lastError = try container.decodeIfPresent(String.self, forKey: .lastError)
-        serverId = try container.decodeIfPresent(String.self, forKey: .serverId)
+        serverId = try container.decodeIfPresent(String.self, forKey: .serverId).map(Self.storedID)
         deviceId = try container.decodeIfPresent(String.self, forKey: .deviceId)
+    }
+
+    nonisolated static func canonicalID(_ value: String) -> String {
+        storedID(value).lowercased()
+    }
+
+    private nonisolated static func storedID(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return UUID().uuidString.lowercased()
+        }
+        return trimmed
+    }
+
+    func canonicalized() -> Message {
+        var copy = self
+        copy.id = Self.canonicalID(id)
+        copy.serverId = serverId.map(Self.canonicalID)
+        return copy
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(type, forKey: .type)
+        try container.encode(sender, forKey: .sender)
+        try container.encodeIfPresent(text, forKey: .text)
+        try container.encodeIfPresent(localFilePath, forKey: .localFilePath)
+        try container.encodeIfPresent(fileName, forKey: .fileName)
+        try container.encodeIfPresent(fileUrl, forKey: .fileUrl)
+        try container.encodeIfPresent(previewUrl, forKey: .previewUrl)
+        try container.encodeIfPresent(mimeType, forKey: .mimeType)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encode(syncStatus, forKey: .syncStatus)
+        try container.encode(retryCount, forKey: .retryCount)
+        try container.encodeIfPresent(lastError, forKey: .lastError)
+        try container.encodeIfPresent(serverId, forKey: .serverId)
+        try container.encodeIfPresent(deviceId, forKey: .deviceId)
     }
 }
 

@@ -242,42 +242,108 @@ body.dragging-file {
 
 .pairing-panel {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
   gap: 14px;
-  align-items: center;
-  padding: 12px 18px;
-  border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--background) 76%, var(--surface));
 }
 
-.pairing-panel[hidden] {
-  display: none;
+.settings-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.pairing-copy {
-  min-width: 0;
+.settings-section-header h3 {
+  margin: 0;
+  font-size: 15px;
 }
 
-.pairing-copy strong,
-.pairing-copy span,
-.pairing-copy small {
-  display: block;
-}
-
-.pairing-copy strong {
-  font-size: 13px;
-}
-
-.pairing-copy span,
-.pairing-copy small {
-  margin-top: 2px;
+.settings-section-header p {
+  margin: 4px 0 0;
   color: var(--muted);
   font-size: 12px;
+}
+
+.status-badge {
+  flex: 0 0 auto;
+  max-width: 150px;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.pairing-panel[data-state="paired"] .status-badge {
+  border-color: color-mix(in srgb, #34c759 55%, var(--border));
+  color: #1f8b3a;
+}
+
+.pairing-panel[data-state="required"] .status-badge,
+.pairing-panel[data-state="not-paired"] .status-badge {
+  border-color: color-mix(in srgb, #ff9f0a 55%, var(--border));
+  color: #b66300;
+}
+
+.pairing-panel[data-state="error"] .status-badge {
+  border-color: color-mix(in srgb, #ff453a 60%, var(--border));
+  color: #d12b22;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settings-field {
+  min-width: 0;
+  padding: 0;
+}
+
+.settings-field span,
+.field-label {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.settings-field strong,
+.settings-field code,
+.pin-control strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 
-.pairing-copy code {
+.settings-field code,
+.pin-control code,
+.pin-control strong,
+.trusted-device-item small {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.pin-control {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.pin-control small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .pairing-actions {
@@ -288,11 +354,22 @@ body.dragging-file {
   justify-content: flex-end;
 }
 
+.pairing-actions.split {
+  justify-content: space-between;
+}
+
+.pairing-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
 .pairing-input {
-  width: 92px;
+  width: 100%;
+  min-width: 0;
   height: 36px;
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: 8px;
   background: var(--surface);
   color: var(--text);
   font: inherit;
@@ -304,7 +381,7 @@ body.dragging-file {
 .secondary-button {
   height: 36px;
   padding: 0 12px;
-  border-radius: 9px;
+  border-radius: 8px;
   font: inherit;
   font-size: 13px;
   cursor: pointer;
@@ -320,6 +397,10 @@ body.dragging-file {
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text);
+}
+
+.danger-button {
+  color: #d12b22;
 }
 
 .primary-button:disabled,
@@ -369,7 +450,10 @@ body.dragging-file {
 }
 
 .settings-panel {
-  width: min(440px, 100%);
+  width: min(620px, 100%);
+  max-height: min(86vh, 760px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--surface);
@@ -380,6 +464,16 @@ body.dragging-file {
 
 .settings-overlay.open .settings-panel {
   transform: scale(1) translateY(0);
+}
+
+.settings-body {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.settings-section {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
 }
 
 .settings-row {
@@ -400,6 +494,44 @@ body.dragging-file {
   margin-top: 3px;
   color: var(--muted);
   font-size: 13px;
+}
+
+.settings-error {
+  margin: -4px 0 0;
+  color: #d12b22;
+  font-size: 12px;
+}
+
+.server-grid {
+  padding-top: 2px;
+}
+
+.trusted-devices {
+  display: grid;
+  gap: 8px;
+}
+
+.trusted-devices-list {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.trusted-device-item {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.trusted-device-item strong,
+.trusted-device-item small {
+  overflow-wrap: anywhere;
+}
+
+.trusted-device-item small {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .autosave-toggle input {
@@ -504,16 +636,18 @@ body.dragging-file {
   line-height: 1.35;
   word-wrap: break-word;
   overflow-wrap: anywhere;
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  user-select: none;
-  touch-action: manipulation;
+  -webkit-touch-callout: default;
+  -webkit-user-select: text;
+  user-select: text;
+  touch-action: pan-y;
+  caret-color: transparent;
 }
 
 .bubble * {
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-touch-callout: none;
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+  caret-color: transparent;
 }
 
 .message-row.own .bubble {
@@ -534,10 +668,19 @@ body.dragging-file {
   color: inherit;
 }
 
+.message-text,
+.file-caption {
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+
 .meta {
   margin-top: 5px;
   font-size: 11px;
   opacity: 0.72;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .saved-note {
@@ -545,6 +688,8 @@ body.dragging-file {
   font-size: 11px;
   font-weight: 600;
   opacity: 0.82;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .file-link {
@@ -565,6 +710,8 @@ body.dragging-file {
   font: inherit;
   text-align: left;
   cursor: zoom-in;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .image-preview {
@@ -716,8 +863,23 @@ body.dragging-file {
     align-items: flex-start;
   }
 
-  .pairing-panel {
+  .settings-overlay {
+    padding: 10px;
+  }
+
+  .settings-panel {
+    max-height: 92vh;
+  }
+
+  .settings-grid,
+  .pairing-input-row {
     grid-template-columns: 1fr;
+  }
+
+  .pin-control,
+  .settings-section-header {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .pairing-actions {
@@ -726,10 +888,6 @@ body.dragging-file {
 
   .pairing-actions button {
     flex: 1 1 130px;
-  }
-
-  .pairing-input {
-    flex: 1 1 88px;
   }
 
   .top-actions {

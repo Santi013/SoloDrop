@@ -83,7 +83,7 @@ final class LocalStore {
     func listItems() throws -> [Message] {
         try queue.sync {
             try ensureReady()
-            return try fetchMessages("SELECT * FROM items ORDER BY created_at ASC")
+            return deduplicatedCanonicalMessages(try fetchMessages("SELECT * FROM items ORDER BY created_at ASC"))
         }
     }
 
@@ -110,44 +110,44 @@ final class LocalStore {
     func upsertLocal(_ item: Message) throws {
         try queue.sync {
             try ensureReady()
-            try insertOrReplace(item)
+            try insertOrReplace(item.canonicalized())
         }
     }
 
-    func upsertRemote(_ remoteItem: Message) throws {
+    @discardableResult
+    func upsertRemote(_ remoteItem: Message) throws -> Bool {
         try queue.sync {
             try ensureReady()
-            if let local = try fetchMessage(id: remoteItem.id),
-               DateFormatter.solodropDate(from: local.updatedAt) ?? .distantPast >
-                DateFormatter.solodropDate(from: remoteItem.updatedAt) ?? .distantPast,
-               local.syncStatus != .synced {
-                return
-            }
+            let remoteItem = remoteItem.canonicalized()
+            let localMatches = try fetchMessages(matching: remoteItem)
 
-            var item = remoteItem
+            var item = mergedSyncedItem(remoteItem, localMatches: localMatches)
             item.syncStatus = .synced
             item.retryCount = 0
             item.lastError = nil
+
+            if localMatches.count == 1, localMatches[0] == item {
+                return false
+            }
+            try deleteCanonicalDuplicates(except: item.id, localMatches: localMatches)
             try insertOrReplace(item)
+            return true
         }
     }
 
     func markSynced(_ item: Message, remote: Message? = nil) throws {
         try queue.sync {
             try ensureReady()
-            var synced = remote ?? item
+            let canonicalItem = item.canonicalized()
+            let localMatches = try fetchMessages(matching: canonicalItem) + (remote.map { try fetchMessages(matching: $0.canonicalized()) } ?? [])
+            var synced = mergedSyncedItem(remote?.canonicalized() ?? canonicalItem, localMatches: localMatches)
             synced.syncStatus = .synced
             synced.retryCount = 0
             synced.lastError = nil
-            if synced.localFilePath == nil {
-                synced.localFilePath = item.localFilePath
-            }
-            if synced.fileUrl == nil {
-                synced.fileUrl = item.fileUrl
-            }
             if synced.serverId == nil {
-                synced.serverId = item.serverId ?? item.id
+                synced.serverId = canonicalItem.serverId ?? synced.id
             }
+            try deleteCanonicalDuplicates(except: synced.id, localMatches: localMatches)
             try insertOrReplace(synced)
         }
     }
@@ -155,14 +155,15 @@ final class LocalStore {
     func markFailed(id: String, error: Error) throws {
         try queue.sync {
             try ensureReady()
+            let canonicalID = Message.canonicalID(id)
             let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             try execute(
                 """
                 UPDATE items
                 SET sync_status = ?, retry_count = retry_count + 1, last_error = ?, updated_at = ?
-                WHERE id = ?
+                WHERE id = ? OR lower(id) = ?
                 """,
-                [.text(SyncStatus.failed.rawValue), .text(message), .text(DateFormatter.solodropISO.string(from: Date())), .text(id)]
+                [.text(SyncStatus.failed.rawValue), .text(message), .text(DateFormatter.solodropISO.string(from: Date())), .text(id), .text(canonicalID)]
             )
         }
     }
@@ -170,9 +171,10 @@ final class LocalStore {
     func markPending(id: String) throws {
         try queue.sync {
             try ensureReady()
+            let canonicalID = Message.canonicalID(id)
             try execute(
-                "UPDATE items SET sync_status = ?, last_error = NULL, updated_at = ? WHERE id = ?",
-                [.text(SyncStatus.pending.rawValue), .text(DateFormatter.solodropISO.string(from: Date())), .text(id)]
+                "UPDATE items SET sync_status = ?, last_error = NULL, updated_at = ? WHERE id = ? OR lower(id) = ?",
+                [.text(SyncStatus.pending.rawValue), .text(DateFormatter.solodropISO.string(from: Date())), .text(id), .text(canonicalID)]
             )
         }
     }
@@ -242,6 +244,7 @@ final class LocalStore {
             try execute("CREATE INDEX IF NOT EXISTS idx_items_sync_status ON items(sync_status)")
             try execute("CREATE INDEX IF NOT EXISTS idx_items_updated_at ON items(updated_at)")
             try execute("CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            try consolidateCanonicalDuplicates()
         }
     }
 
@@ -279,6 +282,7 @@ final class LocalStore {
     }
 
     private func insertOrReplace(_ item: Message) throws {
+        let item = item.canonicalized()
         try execute(
             """
             INSERT OR REPLACE INTO items (
@@ -309,7 +313,38 @@ final class LocalStore {
     }
 
     private func fetchMessage(id: String) throws -> Message? {
-        try fetchMessages("SELECT * FROM items WHERE id = ? LIMIT 1", [.text(id)]).first
+        try fetchMessages(matchingCanonicalID: Message.canonicalID(id)).first
+    }
+
+    private func fetchMessages(matching item: Message) throws -> [Message] {
+        let identities = Set(([item.id, item.serverId].compactMap { $0 }).map(Message.canonicalID))
+        var matches: [Message] = []
+        var seenIDs = Set<String>()
+        for identity in identities {
+            let identityMatches = try fetchMessages(matchingCanonicalID: identity)
+            for match in identityMatches where !seenIDs.contains(match.id) {
+                seenIDs.insert(match.id)
+                matches.append(match)
+            }
+        }
+        return matches
+    }
+
+    private func fetchMessages(matchingCanonicalID canonicalID: String) throws -> [Message] {
+        try fetchMessages(
+            """
+            SELECT * FROM items
+            WHERE lower(id) = ? OR lower(COALESCE(server_id, '')) = ?
+            ORDER BY
+                CASE sync_status
+                    WHEN ? THEN 0
+                    WHEN ? THEN 1
+                    ELSE 2
+                END,
+                updated_at DESC
+            """,
+            [.text(canonicalID), .text(canonicalID), .text(SyncStatus.synced.rawValue), .text(SyncStatus.pending.rawValue)]
+        )
     }
 
     private func fetchMessages(_ sql: String, _ bindings: [SQLiteValue] = []) throws -> [Message] {
@@ -347,6 +382,76 @@ final class LocalStore {
             serverId: columnString(statement, 14),
             deviceId: columnString(statement, 15)
         )
+    }
+
+    private func mergedSyncedItem(_ item: Message, localMatches: [Message]) -> Message {
+        let canonicalItem = item.canonicalized()
+        let preferredLocal = preferredCanonicalMessage(from: localMatches)
+        var merged = canonicalItem
+        merged.localFilePath = preferredLocal?.localFilePath ?? merged.localFilePath
+        merged.fileName = merged.fileName ?? preferredLocal?.fileName
+        merged.fileUrl = merged.fileUrl ?? preferredLocal?.fileUrl
+        merged.previewUrl = merged.previewUrl ?? preferredLocal?.previewUrl
+        merged.mimeType = merged.mimeType ?? preferredLocal?.mimeType
+        merged.serverId = merged.serverId ?? preferredLocal?.serverId.map(Message.canonicalID) ?? merged.id
+        merged.deviceId = merged.deviceId ?? preferredLocal?.deviceId
+        return merged
+    }
+
+    private func deduplicatedCanonicalMessages(_ messages: [Message]) -> [Message] {
+        var grouped: [String: [Message]] = [:]
+        for message in messages {
+            grouped[message.canonicalID, default: []].append(message)
+        }
+        return grouped.values
+            .compactMap { preferredCanonicalMessage(from: $0) }
+            .sorted { $0.date < $1.date }
+    }
+
+    private func preferredCanonicalMessage(from messages: [Message]) -> Message? {
+        messages.sorted { lhs, rhs in
+            let lhsRank = syncStatusRank(lhs.syncStatus)
+            let rhsRank = syncStatusRank(rhs.syncStatus)
+            if lhsRank != rhsRank {
+                return lhsRank < rhsRank
+            }
+            let lhsDate = DateFormatter.solodropDate(from: lhs.updatedAt) ?? .distantPast
+            let rhsDate = DateFormatter.solodropDate(from: rhs.updatedAt) ?? .distantPast
+            return lhsDate > rhsDate
+        }.first?.canonicalized()
+    }
+
+    private func syncStatusRank(_ status: SyncStatus) -> Int {
+        switch status {
+        case .synced:
+            return 0
+        case .pending:
+            return 1
+        case .failed:
+            return 2
+        }
+    }
+
+    private func deleteCanonicalDuplicates(except canonicalID: String, localMatches: [Message]) throws {
+        for local in localMatches where local.id != canonicalID {
+            try execute("DELETE FROM items WHERE id = ?", [.text(local.id)])
+        }
+    }
+
+    private func consolidateCanonicalDuplicates() throws {
+        let messages = try fetchMessages("SELECT * FROM items ORDER BY created_at ASC")
+        let grouped = Dictionary(grouping: messages) { $0.canonicalID }
+        for (canonicalID, duplicates) in grouped where duplicates.count > 1 {
+            guard var preferred = preferredCanonicalMessage(from: duplicates) else { continue }
+            preferred.id = canonicalID
+            preferred.serverId = preferred.serverId.map(Message.canonicalID) ?? canonicalID
+            if preferred.syncStatus == .synced {
+                preferred.retryCount = 0
+                preferred.lastError = nil
+            }
+            try deleteCanonicalDuplicates(except: canonicalID, localMatches: duplicates)
+            try insertOrReplace(preferred)
+        }
     }
 
     private enum SQLiteValue {

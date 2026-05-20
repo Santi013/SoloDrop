@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import logging
@@ -11,6 +12,7 @@ import shutil
 import socket
 import sqlite3
 import sys
+import threading
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -159,6 +161,15 @@ def ensure_uuid(value: str, field_name: str = "id") -> str:
         raise HTTPException(status_code=400, detail=f"{field_name} must be a UUID") from exc
 
 
+def normalize_uuid(value: str | None) -> str | None:
+    if not value:
+        return None
+    try:
+        return str(uuid.UUID(str(value)))
+    except (TypeError, ValueError):
+        return None
+
+
 def safe_name(value: str | None, fallback: str = "file") -> str:
     candidate = Path(value or fallback).name.strip()
     return candidate or fallback
@@ -182,6 +193,11 @@ def server_base_url(host: str | None = None) -> str:
     if resolved_host in {"0.0.0.0", "::", ""}:
         resolved_host = get_lan_ip()
     return f"{config.scheme}://{resolved_host}:{config.port}"
+
+
+def mdns_hostname(host: str) -> str:
+    cleaned = host.strip().rstrip(".")
+    return f"{cleaned or 'solodrop.local'}."
 
 
 def database_connection() -> sqlite3.Connection:
@@ -494,15 +510,22 @@ def hash_device_token(token: str) -> str:
 def is_device_whitelisted(device_id: str | None, device_token: str | None = None) -> bool:
     if not config.pairing_enabled:
         return True
-    if not device_id:
+    normalized_device_id = normalize_uuid(device_id)
+    if not normalized_device_id:
         return False
     with database_connection() as connection:
-        row = connection.execute("SELECT device_id, token_hash FROM devices WHERE device_id = ?", (device_id,)).fetchone()
+        row = connection.execute(
+            "SELECT device_id, token_hash FROM devices WHERE device_id = ?",
+            (normalized_device_id,),
+        ).fetchone()
         if row and row["token_hash"]:
             if not device_token or not hmac.compare_digest(hash_device_token(device_token), row["token_hash"]):
                 return False
         if row:
-            connection.execute("UPDATE devices SET last_seen_at = ? WHERE device_id = ?", (now_iso(), device_id))
+            connection.execute(
+                "UPDATE devices SET last_seen_at = ? WHERE device_id = ?",
+                (now_iso(), normalized_device_id),
+            )
             connection.commit()
         return row is not None
 
@@ -549,10 +572,16 @@ class WebSocketHub:
 
 
 class MDNSAdvertiser:
+    refresh_interval_seconds = 15
+
     def __init__(self, settings: ServerConfig) -> None:
         self.settings = settings
         self.zeroconf: Any | None = None
         self.info: Any | None = None
+        self.current_ip: str | None = None
+        self.stop_event = threading.Event()
+        self.lock = threading.Lock()
+        self.monitor_thread: threading.Thread | None = None
 
     def start(self) -> None:
         if not self.settings.mdns_enabled:
@@ -561,6 +590,19 @@ class MDNSAdvertiser:
             logger.warning("zeroconf is not installed; mDNS discovery is disabled")
             return
 
+        self.zeroconf = Zeroconf()
+        if not self.register_current_ip():
+            return
+
+        self.stop_event.clear()
+        self.monitor_thread = threading.Thread(
+            target=self.monitor_ip_changes,
+            name="solodrop-mdns-monitor",
+            daemon=True,
+        )
+        self.monitor_thread.start()
+
+    def register_current_ip(self) -> bool:
         ip = get_lan_ip()
         properties = {
             "app": APP_NAME,
@@ -568,30 +610,83 @@ class MDNSAdvertiser:
             "scheme": self.settings.scheme,
             "pairing": str(self.settings.pairing_enabled).lower(),
             "path": "/health",
+            "stableHost": self.settings.public_host,
+            "serverUrl": server_base_url(),
+            "manualEntry": f"{ip}:{self.settings.port}",
         }
-        self.info = ServiceInfo(
+        info = ServiceInfo(
             self.settings.service_type,
             f"{self.settings.service_name}.{self.settings.service_type}",
             addresses=[socket.inet_aton(ip)],
             port=self.settings.port,
             properties=properties,
-            server=f"{self.settings.public_host}.",
+            server=mdns_hostname(self.settings.public_host),
         )
-        self.zeroconf = Zeroconf()
+
+        if not self.zeroconf:
+            self.zeroconf = Zeroconf()
+
         try:
-            self.zeroconf.register_service(self.info)
+            with self.lock:
+                if self.info:
+                    try:
+                        self.zeroconf.unregister_service(self.info)
+                    except Exception:
+                        logger.debug("mDNS unregister before refresh failed", exc_info=True)
+                self.zeroconf.register_service(info, allow_name_change=True)
+                self.info = info
+                self.current_ip = ip
         except Exception:
             logger.exception("mDNS registration failed; continuing without Bonjour discovery")
-            self.zeroconf.close()
-            self.zeroconf = None
+            if self.zeroconf:
+                self.zeroconf.close()
+                self.zeroconf = None
             self.info = None
-            return
-        logger.info("mDNS advertised as %s on %s:%s", self.settings.service_name, ip, self.settings.port)
+            return False
+        logger.info(
+            "mDNS advertised as %s at %s (%s:%s)",
+            self.settings.service_name,
+            server_base_url(),
+            ip,
+            self.settings.port,
+        )
+        return True
+
+    def monitor_ip_changes(self) -> None:
+        while not self.stop_event.wait(self.refresh_interval_seconds):
+            ip = get_lan_ip()
+            if ip == self.current_ip:
+                continue
+            logger.info("LAN IP changed from %s to %s; refreshing mDNS record", self.current_ip, ip)
+            self.register_current_ip()
 
     def stop(self) -> None:
+        self.stop_event.set()
+        if self.monitor_thread and self.monitor_thread.is_alive():
+            self.monitor_thread.join(timeout=1)
         if self.zeroconf and self.info:
-            self.zeroconf.unregister_service(self.info)
-            self.zeroconf.close()
+            with self.lock:
+                try:
+                    self.zeroconf.unregister_service(self.info)
+                except Exception:
+                    logger.debug("mDNS unregister during shutdown failed", exc_info=True)
+                self.zeroconf.close()
+        self.zeroconf = None
+        self.info = None
+        self.current_ip = None
+
+    def status(self) -> dict[str, Any]:
+        with self.lock:
+            advertised = bool(self.zeroconf and self.info)
+            current_ip = self.current_ip
+        return {
+            "enabled": self.settings.mdns_enabled,
+            "available": Zeroconf is not None and ServiceInfo is not None,
+            "advertised": advertised,
+            "serviceName": self.settings.service_name,
+            "serviceType": self.settings.service_type,
+            "host": current_ip,
+        }
 
 
 hub = WebSocketHub()
@@ -601,11 +696,11 @@ mdns_advertiser = MDNSAdvertiser(config)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     initialize_database()
-    mdns_advertiser.start()
+    await asyncio.to_thread(mdns_advertiser.start)
     try:
         yield
     finally:
-        mdns_advertiser.stop()
+        await asyncio.to_thread(mdns_advertiser.stop)
 
 
 app = FastAPI(title=APP_NAME, version=APP_VERSION, lifespan=lifespan)
@@ -645,7 +740,8 @@ def legacy_health() -> dict[str, Any]:
 @app.get("/connect/config")
 def connection_config() -> dict[str, Any]:
     ip = get_lan_ip()
-    base = server_base_url(ip)
+    base = server_base_url()
+    lan_base = server_base_url(ip)
     return {
         "app": APP_NAME,
         "version": APP_VERSION,
@@ -653,12 +749,16 @@ def connection_config() -> dict[str, Any]:
         "healthUrl": f"{base}/health",
         "pairCodeUrl": f"{base}/pair/code",
         "pairVerifyUrl": f"{base}/pair/verify",
-        "webSocketUrl": f"{config.websocket_scheme}://{ip}:{config.port}/ws",
-        "host": ip,
+        "webSocketUrl": f"{config.websocket_scheme}://{config.public_host}:{config.port}/ws",
+        "host": config.public_host,
         "port": config.port,
         "mdnsName": config.public_host,
+        "stableHost": config.public_host,
+        "lanServerUrl": lan_base,
+        "lanHost": ip,
         "manualEntry": f"{ip}:{config.port}",
         "httpsEnabled": config.https_enabled,
+        "bonjour": mdns_advertiser.status(),
     }
 
 
@@ -688,6 +788,64 @@ def pair_code() -> dict[str, Any]:
         )
         connection.commit()
     return {"pairingEnabled": True, "code": code, "expiresAt": expires_at.isoformat()}
+
+
+@app.get("/pair/status")
+def pair_status(
+    device_id: str | None = Query(default=None),
+    device_token: str | None = Query(default=None),
+) -> dict[str, Any]:
+    normalized_device_id = normalize_uuid(device_id)
+    if not config.pairing_enabled:
+        return {
+            "pairingEnabled": False,
+            "paired": True,
+            "trusted": True,
+            "tokenValid": True,
+            "deviceId": normalized_device_id,
+            "device": None,
+        }
+
+    device: dict[str, Any] | None = None
+    trusted = False
+    token_valid = False
+    if normalized_device_id:
+        with database_connection() as connection:
+            row = connection.execute(
+                """
+                SELECT device_id, device_name, token_hash, paired_at, last_seen_at
+                FROM devices
+                WHERE device_id = ?
+                """,
+                (normalized_device_id,),
+            ).fetchone()
+            if row:
+                trusted = True
+                token_hash = row["token_hash"]
+                token_valid = not token_hash or bool(
+                    device_token and hmac.compare_digest(hash_device_token(device_token), token_hash)
+                )
+                if token_valid:
+                    connection.execute(
+                        "UPDATE devices SET last_seen_at = ? WHERE device_id = ?",
+                        (now_iso(), normalized_device_id),
+                    )
+                    connection.commit()
+                device = {
+                    "deviceId": row["device_id"],
+                    "deviceName": row["device_name"],
+                    "pairedAt": row["paired_at"],
+                    "lastSeenAt": row["last_seen_at"],
+                }
+
+    return {
+        "pairingEnabled": True,
+        "paired": token_valid,
+        "trusted": trusted,
+        "tokenValid": token_valid,
+        "deviceId": normalized_device_id,
+        "device": device,
+    }
 
 
 @app.post("/pair/verify")
@@ -720,7 +878,7 @@ def pair_verify(payload: dict[str, Any]) -> dict[str, Any]:
         connection.execute("DELETE FROM pairing_codes WHERE code = ?", (code,))
         connection.commit()
 
-    return {"paired": True, "deviceId": device_id, "deviceToken": device_token, "serverUrl": server_base_url(get_lan_ip())}
+    return {"paired": True, "deviceId": device_id, "deviceToken": device_token, "serverUrl": server_base_url()}
 
 
 @app.get("/devices")

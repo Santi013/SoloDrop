@@ -4,6 +4,7 @@ enum APIClientError: LocalizedError, Equatable {
     case invalidServerAddress
     case unauthorized
     case httpStatus(Int)
+    case serverStatus(Int, String)
     case invalidResponse
 
     var errorDescription: String? {
@@ -14,6 +15,8 @@ enum APIClientError: LocalizedError, Equatable {
             return "Device pairing is required."
         case .httpStatus(let statusCode):
             return "Server returned HTTP \(statusCode)."
+        case .serverStatus(let statusCode, let message):
+            return "Server returned HTTP \(statusCode): \(message)"
         case .invalidResponse:
             return "Server response is invalid."
         }
@@ -50,6 +53,40 @@ struct PairingResult: Decodable {
     let deviceId: String?
     let deviceToken: String?
     let serverUrl: String?
+
+    enum CodingKeys: String, CodingKey {
+        case paired
+        case deviceId
+        case deviceIdSnake = "device_id"
+        case deviceToken
+        case deviceTokenSnake = "device_token"
+        case serverUrl
+        case serverUrlSnake = "server_url"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        paired = try container.decode(Bool.self, forKey: .paired)
+        deviceId = try container.decodeIfPresent(String.self, forKey: .deviceId)
+            ?? container.decodeIfPresent(String.self, forKey: .deviceIdSnake)
+        deviceToken = try container.decodeIfPresent(String.self, forKey: .deviceToken)
+            ?? container.decodeIfPresent(String.self, forKey: .deviceTokenSnake)
+        serverUrl = try container.decodeIfPresent(String.self, forKey: .serverUrl)
+            ?? container.decodeIfPresent(String.self, forKey: .serverUrlSnake)
+    }
+}
+
+enum WebSocketClientEvent {
+    case connecting(generation: UUID)
+    case connected(generation: UUID, reusedExistingConnection: Bool)
+    case disconnected(generation: UUID, errorDescription: String?)
+    case invalidAddress(String)
+}
+
+struct WebSocketReconnectResult {
+    let generation: UUID?
+    let reusedExistingConnection: Bool
+    let url: URL?
 }
 
 final class APIClient {
@@ -57,10 +94,16 @@ final class APIClient {
     var deviceId: String
     var deviceToken: String?
     private var webSocketTask: URLSessionWebSocketTask?
+    private var webSocketURL: URL?
+    private var webSocketGeneration = UUID()
+
+    var currentWebSocketGenerationID: String {
+        webSocketGeneration.uuidString
+    }
 
     init(serverAddress: String, deviceId: String, deviceToken: String? = nil) {
         self.serverAddress = serverAddress
-        self.deviceId = deviceId
+        self.deviceId = deviceId.lowercased()
         self.deviceToken = deviceToken
     }
 
@@ -102,12 +145,14 @@ final class APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode([
             "code": code,
+            "deviceId": deviceId,
             "device_id": deviceId,
+            "deviceName": deviceName,
             "device_name": deviceName
         ])
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        try validate(response: response)
+        try validate(response: response, data: data)
         return try JSONDecoder().decode(PairingResult.self, from: data)
     }
 
@@ -201,13 +246,17 @@ final class APIClient {
         _ = try await upload(item: item)
     }
 
-    func connectWebSocket(onMessage: @escaping (Message) -> Void, onStatus: @escaping (String) -> Void) {
-        webSocketTask?.cancel(with: .goingAway, reason: nil)
-
+    @discardableResult
+    func connectWebSocket(
+        forceReconnect: Bool = false,
+        onMessage: @escaping (Message) -> Void,
+        onEvent: @escaping (WebSocketClientEvent) -> Void
+    ) -> WebSocketReconnectResult {
         guard let baseURL,
               var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
-            onStatus("Неверный адрес сервера")
-            return
+            disconnectWebSocket(reason: "invalid server address before websocket connect")
+            onEvent(.invalidAddress("Неверный адрес сервера"))
+            return WebSocketReconnectResult(generation: nil, reusedExistingConnection: false, url: nil)
         }
         components.scheme = components.scheme == "https" ? "wss" : "ws"
         components.path = "/ws"
@@ -218,54 +267,160 @@ final class APIClient {
         components.queryItems = queryItems
 
         guard let webSocketURL = components.url else {
-            onStatus("Неверный адрес сервера")
-            return
+            disconnectWebSocket(reason: "invalid websocket url")
+            onEvent(.invalidAddress("Неверный адрес сервера"))
+            return WebSocketReconnectResult(generation: nil, reusedExistingConnection: false, url: nil)
         }
 
+        if !forceReconnect,
+           let task = webSocketTask,
+           task.state == .running,
+           self.webSocketURL == webSocketURL {
+            log("websocket reused generation=\(webSocketGeneration.uuidString)")
+            onEvent(.connected(generation: webSocketGeneration, reusedExistingConnection: true))
+            return WebSocketReconnectResult(generation: webSocketGeneration, reusedExistingConnection: true, url: webSocketURL)
+        }
+
+        disconnectWebSocket(reason: forceReconnect ? "force reconnect" : "new websocket connection")
+        let generation = UUID()
         let task = URLSession.shared.webSocketTask(with: webSocketURL)
         webSocketTask = task
+        self.webSocketURL = webSocketURL
+        webSocketGeneration = generation
+        log("websocket connecting generation=\(generation.uuidString) url=\(webSocketURL.absoluteString)")
+        onEvent(.connecting(generation: generation))
         task.resume()
-        onStatus("Онлайн")
-        receiveLoop(onMessage: onMessage, onStatus: onStatus)
+        task.sendPing { [weak self] error in
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard self.isCurrentWebSocket(task: task, generation: generation) else {
+                    self.log("websocket stale ping ignored generation=\(generation.uuidString)")
+                    return
+                }
+                if let error {
+                    self.webSocketTask = nil
+                    self.webSocketURL = nil
+                    self.log("websocket ping failed generation=\(generation.uuidString) error=\(error.localizedDescription)")
+                    onEvent(.disconnected(generation: generation, errorDescription: error.localizedDescription))
+                    return
+                }
+                self.log("websocket ping ok generation=\(generation.uuidString)")
+                onEvent(.connected(generation: generation, reusedExistingConnection: false))
+            }
+        }
+        receiveLoop(task: task, generation: generation, onMessage: onMessage, onEvent: onEvent)
+        return WebSocketReconnectResult(generation: generation, reusedExistingConnection: false, url: webSocketURL)
     }
 
-    func disconnectWebSocket() {
+    func suspendWebSocketForBackground() {
+        disconnectWebSocket(reason: "background suspend")
+    }
+
+    func disconnectWebSocket(reason: String = "manual disconnect") {
+        let previousGeneration = webSocketGeneration.uuidString
+        if webSocketTask != nil {
+            log("websocket stale cleanup reason=\(reason) generation=\(previousGeneration)")
+        } else {
+            log("websocket cleanup reason=\(reason) no active task generation=\(previousGeneration)")
+        }
+        webSocketGeneration = UUID()
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
+        webSocketURL = nil
     }
 
-    private func receiveLoop(onMessage: @escaping (Message) -> Void, onStatus: @escaping (String) -> Void) {
-        webSocketTask?.receive { [weak self] result in
-            switch result {
-            case .success(let event):
-                if case .string(let text) = event,
-                   let data = text.data(using: .utf8),
-                   let envelope = try? JSONDecoder().decode(WebSocketEnvelope.self, from: data),
-                   let message = envelope.item {
-                    DispatchQueue.main.async {
-                        onMessage(message)
-                    }
-                }
-                self?.receiveLoop(onMessage: onMessage, onStatus: onStatus)
-
-            case .failure:
-                DispatchQueue.main.async {
-                    onStatus("Офлайн")
-                }
+    private func receiveLoop(
+        task: URLSessionWebSocketTask,
+        generation: UUID,
+        onMessage: @escaping (Message) -> Void,
+        onEvent: @escaping (WebSocketClientEvent) -> Void
+    ) {
+        task.receive { [weak self] result in
+            DispatchQueue.main.async { [weak self] in
+                self?.handleWebSocketReceive(
+                    result,
+                    task: task,
+                    generation: generation,
+                    onMessage: onMessage,
+                    onEvent: onEvent
+                )
             }
         }
     }
 
+    private func handleWebSocketReceive(
+        _ result: Result<URLSessionWebSocketTask.Message, Error>,
+        task: URLSessionWebSocketTask,
+        generation: UUID,
+        onMessage: @escaping (Message) -> Void,
+        onEvent: @escaping (WebSocketClientEvent) -> Void
+    ) {
+        guard isCurrentWebSocket(task: task, generation: generation) else {
+            log("websocket stale receive ignored generation=\(generation.uuidString)")
+            return
+        }
+
+        switch result {
+        case .success(let event):
+            if case .string(let text) = event,
+               let data = text.data(using: .utf8),
+               let envelope = try? JSONDecoder().decode(WebSocketEnvelope.self, from: data),
+               let message = envelope.item {
+                guard isCurrentWebSocket(task: task, generation: generation) else { return }
+                onMessage(message)
+            }
+            receiveLoop(task: task, generation: generation, onMessage: onMessage, onEvent: onEvent)
+
+        case .failure(let error):
+            guard isCurrentWebSocket(task: task, generation: generation) else {
+                log("websocket stale failure ignored generation=\(generation.uuidString)")
+                return
+            }
+            webSocketTask = nil
+            webSocketURL = nil
+            log("websocket disconnected generation=\(generation.uuidString) error=\(error.localizedDescription)")
+            onEvent(.disconnected(generation: generation, errorDescription: error.localizedDescription))
+        }
+    }
+
+    private func isCurrentWebSocket(task: URLSessionWebSocketTask, generation: UUID) -> Bool {
+        webSocketGeneration == generation && webSocketTask === task
+    }
+
+    private func log(_ message: String) {
+        print("[SoloDrop iOS] \(message)")
+    }
+
     private func validate(response: URLResponse) throws {
+        try validate(response: response, data: nil)
+    }
+
+    private func validate(response: URLResponse, data: Data?) throws {
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIClientError.invalidResponse
         }
+
         if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
-            throw APIClientError.unauthorized
+            throw APIClientError.serverStatus(httpResponse.statusCode, serverErrorMessage(from: data) ?? "Device pairing is required.")
         }
+
         guard (200...299).contains(httpResponse.statusCode) else {
+            if let message = serverErrorMessage(from: data) {
+                throw APIClientError.serverStatus(httpResponse.statusCode, message)
+            }
             throw APIClientError.httpStatus(httpResponse.statusCode)
         }
+    }
+
+    private func serverErrorMessage(from data: Data?) -> String? {
+        guard let data, !data.isEmpty else { return nil }
+
+        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let detail = object["detail"] {
+            return String(describing: detail)
+        }
+
+        return String(data: data, encoding: .utf8)
     }
 }
 

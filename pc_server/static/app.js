@@ -45,11 +45,25 @@ const settingsOverlay = document.querySelector("#settingsOverlay");
 const closeSettingsButton = document.querySelector("#closeSettingsButton");
 const autosaveToggle = document.querySelector("#autosaveToggle");
 const pairingPanel = document.querySelector("#pairingPanel");
+const pairingSummary = document.querySelector("#pairingSummary");
+const pairingStatusBadge = document.querySelector("#pairingStatusBadge");
 const pairingStatus = document.querySelector("#pairingStatus");
 const deviceIdLabel = document.querySelector("#deviceIdLabel");
+const deviceNameLabel = document.querySelector("#deviceNameLabel");
+const trustStatusLabel = document.querySelector("#trustStatusLabel");
 const requestPairCodeButton = document.querySelector("#requestPairCodeButton");
+const copyPairCodeButton = document.querySelector("#copyPairCodeButton");
+const pairCodeValue = document.querySelector("#pairCodeValue");
+const pairCodeExpiry = document.querySelector("#pairCodeExpiry");
 const pairingCodeInput = document.querySelector("#pairingCodeInput");
 const pairButton = document.querySelector("#pairButton");
+const repairPairingButton = document.querySelector("#repairPairingButton");
+const resetPairingButton = document.querySelector("#resetPairingButton");
+const serverUrlLabel = document.querySelector("#serverUrlLabel");
+const bonjourStatusLabel = document.querySelector("#bonjourStatusLabel");
+const manualAddressLabel = document.querySelector("#manualAddressLabel");
+const trustedDevicesList = document.querySelector("#trustedDevicesList");
+const pairingError = document.querySelector("#pairingError");
 const dropZone = document.querySelector("#dropZone");
 const toast = document.querySelector("#toast");
 
@@ -57,7 +71,7 @@ const AUTOSAVE_KEY = `solodropAutosave:${currentDevice}`;
 const DEVICE_ID_KEY = "solodropDeviceId";
 const DEVICE_TOKEN_KEY = "solodropDeviceToken";
 const PAIRED_KEY = "solodropPaired";
-const deviceId = getOrCreateDeviceId();
+let deviceId = getOrCreateDeviceId();
 
 let allMessages = [];
 let autosavedMessageIds = new Set(JSON.parse(localStorage.getItem("solodropAutosavedMessageIds") || "[]"));
@@ -69,6 +83,8 @@ let dragDepth = 0;
 let sidebarTouchStartX = null;
 let activeSocket = null;
 let websocketReconnectTimer = null;
+let lastPairCode = "";
+let currentPairingStatus = "checking";
 
 function createUuid() {
   if (window.crypto?.randomUUID) {
@@ -84,9 +100,20 @@ function createUuid() {
   });
 }
 
+function normalizeUuid(value) {
+  const match = String(value || "").trim().match(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/);
+  return match ? match[0].toLowerCase() : "";
+}
+
 function getOrCreateDeviceId() {
   const saved = localStorage.getItem(DEVICE_ID_KEY);
-  if (saved) return saved;
+  const normalizedSaved = normalizeUuid(saved);
+  if (normalizedSaved) {
+    if (saved !== normalizedSaved) {
+      localStorage.setItem(DEVICE_ID_KEY, normalizedSaved);
+    }
+    return normalizedSaved;
+  }
 
   const created = createUuid();
   localStorage.setItem(DEVICE_ID_KEY, created);
@@ -103,14 +130,25 @@ function isPaired() {
 
 function setPairingCredentials(result = {}) {
   localStorage.setItem(PAIRED_KEY, "true");
-  if (result.deviceToken) {
-    localStorage.setItem(DEVICE_TOKEN_KEY, result.deviceToken);
+  const pairedDeviceId = normalizeUuid(result.deviceId || result.device_id);
+  if (pairedDeviceId) {
+    deviceId = pairedDeviceId;
+    localStorage.setItem(DEVICE_ID_KEY, pairedDeviceId);
+  }
+  const deviceToken = result.deviceToken || result.device_token;
+  if (deviceToken) {
+    localStorage.setItem(DEVICE_TOKEN_KEY, deviceToken);
   }
 }
 
-function clearPairingCredentials() {
+function clearPairingCredentials({ resetDeviceId = false } = {}) {
   localStorage.removeItem(PAIRED_KEY);
   localStorage.removeItem(DEVICE_TOKEN_KEY);
+  if (resetDeviceId) {
+    localStorage.removeItem(DEVICE_ID_KEY);
+    deviceId = getOrCreateDeviceId();
+  }
+  updateDeviceLabels();
 }
 
 function deviceName() {
@@ -219,12 +257,16 @@ function currentDeviceLabel() {
   return currentDevice === "pc" ? "ПК" : "iPhone";
 }
 
+function updateDeviceLabels() {
+  deviceIdLabel.textContent = deviceId;
+  deviceNameLabel.textContent = deviceName();
+}
+
 function applyDeviceChrome() {
   document.body.dataset.device = currentDevice;
-  deviceIdLabel.textContent = deviceId;
+  updateDeviceLabels();
   if (currentDevice === "ios") {
     clearChatButton.hidden = true;
-    settingsButton.hidden = true;
   }
   autosaveToggle.checked = localStorage.getItem(AUTOSAVE_KEY) === "true";
 }
@@ -264,16 +306,66 @@ function setClientEnabled(enabled) {
   composer.querySelector("button[type='submit']").disabled = !enabled;
 }
 
-function showPairingPanel(text) {
-  pairingPanel.hidden = false;
+function setPairingError(text = "") {
+  pairingError.textContent = text;
+  pairingError.hidden = !text;
+}
+
+function formatPairingDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+  });
+}
+
+function setPairingStatus(status, text, { summary = text, error = "" } = {}) {
+  currentPairingStatus = status;
+  pairingPanel.dataset.state = status;
   pairingStatus.textContent = text;
-  deviceIdLabel.textContent = deviceId;
-  setClientEnabled(false);
+  pairingSummary.textContent = summary;
+  pairingStatusBadge.textContent = text;
+  setPairingError(error);
+  updateDeviceLabels();
 }
 
 function hidePairingPanel() {
-  pairingPanel.hidden = true;
+  setPairingStatus("paired", "Подключено", { summary: "Device token принят сервером" });
   setClientEnabled(true);
+}
+
+function showPairingPanel(text, { status = "required", summary = text, error = "", open = false } = {}) {
+  setPairingStatus(status, text, { summary, error });
+  setClientEnabled(true);
+  if (open) openSettings();
+}
+
+function clearPairCode() {
+  lastPairCode = "";
+  pairCodeValue.textContent = "Не запрошен";
+  pairCodeExpiry.textContent = "Срок действия появится после запроса";
+  copyPairCodeButton.disabled = true;
+}
+
+function setPairCode(code, expiresAt) {
+  lastPairCode = code || "";
+  pairCodeValue.textContent = lastPairCode || "Введите PIN с другого устройства";
+  pairCodeExpiry.textContent = expiresAt ? `Действует до ${formatPairingDate(expiresAt)}` : "Срок действия не указан";
+  copyPairCodeButton.disabled = !lastPairCode;
+}
+
+function disconnectWebSocket(reason = "Pairing changed") {
+  window.clearTimeout(websocketReconnectTimer);
+  websocketReconnectTimer = null;
+  if (activeSocket) {
+    activeSocket.soloDropIntentionalClose = true;
+    activeSocket.close(1000, reason);
+    activeSocket = null;
+  }
 }
 
 async function checkServerHealth() {
@@ -289,24 +381,167 @@ async function checkServerHealth() {
   return payload;
 }
 
-async function verifyPairedDevice() {
-  if (!isPaired()) {
+async function fetchConnectionConfig() {
+  const response = await fetch("/connect/config", { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("Connection config unavailable");
+  }
+  return response.json();
+}
+
+async function fetchPairingStatus() {
+  const response = await fetch(authUrl("/pair/status"), { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("Pairing status unavailable");
+  }
+  return response.json();
+}
+
+async function fetchTrustedDevices() {
+  const response = await fetch("/devices", { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("Trusted devices unavailable");
+  }
+  return response.json();
+}
+
+function currentServerUrl(config) {
+  return config?.serverUrl || window.location.origin;
+}
+
+function isManualAddressActive(config) {
+  const host = window.location.hostname;
+  return Boolean(host && host !== config?.stableHost && host !== config?.mdnsName);
+}
+
+function renderServerStatus(config) {
+  serverUrlLabel.textContent = currentServerUrl(config);
+  const manualEntry = config?.manualEntry || `${window.location.hostname}:${window.location.port || (window.location.protocol === "https:" ? "443" : "80")}`;
+  manualAddressLabel.textContent = isManualAddressActive(config) ? `Активен: ${window.location.host}` : manualEntry;
+
+  const bonjour = config?.bonjour;
+  if (!bonjour) {
+    bonjourStatusLabel.textContent = "Не найден";
+    return;
+  }
+  if (bonjour.advertised) {
+    bonjourStatusLabel.textContent = `Найден сервер · ${bonjour.serviceName || config.mdnsName}`;
+    return;
+  }
+  if (!bonjour.enabled) {
+    bonjourStatusLabel.textContent = "Не найден · Bonjour отключен";
+    return;
+  }
+  if (!bonjour.available) {
+    bonjourStatusLabel.textContent = "Не найден · zeroconf недоступен";
+    return;
+  }
+  bonjourStatusLabel.textContent = "Не найден";
+}
+
+function renderTrustedDevices(devices = []) {
+  if (!devices.length) {
+    trustedDevicesList.textContent = "Нет подключённых устройств";
+    return;
+  }
+
+  trustedDevicesList.innerHTML = "";
+  for (const device of devices) {
+    const item = document.createElement("div");
+    item.className = "trusted-device-item";
+    const isCurrent = normalizeUuid(device.device_id || device.deviceId) === deviceId;
+    const name = device.device_name || device.deviceName || "Устройство";
+    const lastSeen = formatPairingDate(device.last_seen_at || device.lastSeenAt);
+    const title = document.createElement("strong");
+    title.textContent = `${name}${isCurrent ? " · current" : ""}`;
+    const meta = document.createElement("small");
+    meta.textContent = `${device.device_id || device.deviceId}${lastSeen ? ` · last seen ${lastSeen}` : ""}`;
+    item.append(title, meta);
+    trustedDevicesList.append(item);
+  }
+}
+
+function renderPairingStatus(statusPayload, devices = []) {
+  updateDeviceLabels();
+  const currentDevice = statusPayload?.device;
+  const trusted = Boolean(statusPayload?.trusted);
+  const tokenValid = Boolean(statusPayload?.tokenValid);
+  const pairingEnabled = statusPayload?.pairingEnabled !== false;
+
+  if (!pairingEnabled) {
+    trustStatusLabel.textContent = "Trusted · pairing отключён";
+    setPairingStatus("paired", "Подключено", { summary: "Pairing disabled on server" });
+    return true;
+  }
+
+  if (tokenValid) {
+    trustStatusLabel.textContent = "Trusted";
+    setPairingStatus("paired", "Подключено", {
+      summary: currentDevice?.lastSeenAt ? `Last seen ${formatPairingDate(currentDevice.lastSeenAt)}` : "Device token принят сервером",
+    });
+    if (currentDevice?.deviceName) {
+      deviceNameLabel.textContent = currentDevice.deviceName;
+    }
+    return true;
+  }
+
+  if (trusted && isPaired()) {
+    trustStatusLabel.textContent = "Token invalid";
+    setPairingStatus("required", "Требуется повторный pairing", {
+      summary: "Сервер знает device_id, но token не принят",
+    });
     return false;
   }
 
-  const response = await fetch(authUrl("/sync/pull?limit=1"), { cache: "no-store" });
-  if (response.status === 401 || response.status === 403) {
+  trustStatusLabel.textContent = trusted ? "Untrusted token" : "Untrusted";
+  setPairingStatus("not-paired", "Не подключено", {
+    summary: devices.length ? "Получите PIN или введите существующий" : "Нет trusted device для этого браузера",
+  });
+  return false;
+}
+
+async function refreshPairingSettings() {
+  try {
+    const [config, statusPayload, devices] = await Promise.all([
+      fetchConnectionConfig(),
+      fetchPairingStatus(),
+      fetchTrustedDevices(),
+    ]);
+    renderServerStatus(config);
+    renderTrustedDevices(devices);
+    return renderPairingStatus(statusPayload, devices);
+  } catch {
+    serverUrlLabel.textContent = window.location.origin;
+    bonjourStatusLabel.textContent = "Не найден";
+    manualAddressLabel.textContent = `Активен: ${window.location.host}`;
+    trustedDevicesList.textContent = "Сервер недоступен";
+    trustStatusLabel.textContent = "Unknown";
+    setPairingStatus("error", "Error state", {
+      summary: "Сервер недоступен или status endpoint не ответил",
+      error: "Не удалось обновить pairing status",
+    });
+    return false;
+  }
+}
+
+async function verifyPairedDevice() {
+  if (!isPaired()) {
+    await refreshPairingSettings();
+    return false;
+  }
+
+  const statusPayload = await fetchPairingStatus();
+  const verified = renderPairingStatus(statusPayload);
+  if (!verified && statusPayload.pairingEnabled !== false) {
     clearPairingCredentials();
     return false;
   }
-  if (!response.ok) {
-    throw new Error("Pairing verification failed");
-  }
-  return true;
+  return verified;
 }
 
 async function requestPairCode() {
   requestPairCodeButton.disabled = true;
+  setPairingError("");
   try {
     await checkServerHealth();
     const response = await fetch("/pair/code", { cache: "no-store" });
@@ -321,10 +556,16 @@ async function requestPairCode() {
       return;
     }
 
-    pairingCodeInput.value = payload.code || "";
-    pairingStatus.textContent = payload.code ? `PIN ${payload.code}` : "Введите PIN с ПК";
-  } catch {
-    pairingStatus.textContent = "Сервер недоступен";
+    setPairCode(payload.code, payload.expiresAt);
+    pairingCodeInput.value = "";
+    setPairingStatus("required", payload.code ? "Требуется pairing" : "Pairing required", {
+      summary: payload.code ? "PIN готов внутри Settings" : "Введите PIN с другого устройства",
+    });
+  } catch (error) {
+    setPairingStatus("error", "Error state", {
+      summary: "Сервер недоступен",
+      error: error.message || "Не удалось получить PIN",
+    });
     showToast("Не удалось получить PIN");
   } finally {
     requestPairCodeButton.disabled = false;
@@ -334,12 +575,16 @@ async function requestPairCode() {
 async function pairDevice() {
   const code = pairingCodeInput.value.trim();
   if (!code) {
-    pairingStatus.textContent = "Введите PIN";
+    setPairingStatus(currentPairingStatus, pairingStatus.textContent, {
+      summary: pairingSummary.textContent,
+      error: "Введите PIN",
+    });
     pairingCodeInput.focus();
     return;
   }
 
   pairButton.disabled = true;
+  setPairingError("");
   try {
     await checkServerHealth();
     const response = await fetch("/pair/verify", {
@@ -353,7 +598,7 @@ async function pairDevice() {
     });
 
     if (!response.ok) {
-      throw new Error("Pairing failed");
+      throw new Error(response.status === 401 ? "Неверный или просроченный PIN" : "Pairing failed");
     }
 
     const result = await response.json();
@@ -362,14 +607,65 @@ async function pairDevice() {
     }
 
     setPairingCredentials(result);
+    clearPairCode();
     pairingCodeInput.value = "";
     await startAuthorizedClient();
-  } catch {
-    clearPairingCredentials();
-    pairingStatus.textContent = "PIN не принят";
+    await refreshPairingSettings();
+  } catch (error) {
+    setPairingStatus("error", "Error state", {
+      summary: "PIN не принят",
+      error: error.message || "Неверный или просроченный PIN",
+    });
     showToast("Pairing не выполнен");
   } finally {
     pairButton.disabled = false;
+  }
+}
+
+async function copyPairCode() {
+  const copied = await copyTextToClipboard(lastPairCode);
+  showToast(copied ? "PIN скопирован" : "Не удалось скопировать PIN");
+}
+
+async function repairPairing() {
+  clearPairingCredentials();
+  disconnectWebSocket("Re-pair");
+  connectionStatus.textContent = `Требуется pairing · ${currentDeviceLabel()}`;
+  showPairingPanel("Требуется повторный pairing", {
+    status: "required",
+    summary: "Получите новый PIN и подключите это устройство",
+    open: true,
+  });
+  await requestPairCode();
+}
+
+async function resetPairing() {
+  const previousDeviceId = deviceId;
+  resetPairingButton.disabled = true;
+  repairPairingButton.disabled = true;
+  try {
+    if (previousDeviceId) {
+      await fetch(`/devices/${encodeURIComponent(previousDeviceId)}`, { method: "DELETE" });
+    }
+  } catch {
+    showToast("Сервер недоступен, очищаю локальный pairing");
+  } finally {
+    clearPairingCredentials({ resetDeviceId: true });
+    clearPairCode();
+    pairingCodeInput.value = "";
+    disconnectWebSocket("Pairing reset");
+    connectionStatus.textContent = `Требуется pairing · ${currentDeviceLabel()}`;
+    showPairingPanel("Требуется pairing", {
+      status: "required",
+      summary: "Локальные pairing credentials очищены",
+      open: true,
+    });
+    await refreshPairingSettings();
+    setPairingStatus("required", "Требуется pairing", {
+      summary: "Локальные pairing credentials очищены",
+    });
+    resetPairingButton.disabled = false;
+    repairPairingButton.disabled = false;
   }
 }
 
@@ -390,10 +686,17 @@ async function bootstrapClient() {
     }
 
     connectionStatus.textContent = `Требуется pairing · ${currentDeviceLabel()}`;
-    showPairingPanel("Введите PIN с ПК");
-  } catch {
+    showPairingPanel("Требуется pairing", {
+      status: "required",
+      summary: "Откройте Settings, получите PIN или введите существующий",
+    });
+  } catch (error) {
     connectionStatus.textContent = "Сервер недоступен";
-    showPairingPanel("Проверьте адрес SoloDrop Server");
+    showPairingPanel("Error state", {
+      status: "error",
+      summary: "Проверьте адрес SoloDrop Server",
+      error: error.message || "Сервер недоступен",
+    });
   }
 }
 
@@ -403,7 +706,11 @@ function ensurePairedForSend() {
   }
 
   connectionStatus.textContent = `Требуется pairing · ${currentDeviceLabel()}`;
-  showPairingPanel("Введите PIN с ПК");
+  showPairingPanel("Требуется pairing", {
+    status: "required",
+    summary: "Подключите устройство в Settings",
+    open: true,
+  });
   return false;
 }
 
@@ -419,10 +726,18 @@ async function copyTextToClipboard(text) {
       textarea.setAttribute("readonly", "");
       textarea.style.position = "fixed";
       textarea.style.left = "-9999px";
+      textarea.style.opacity = "0";
       document.body.append(textarea);
+      const focusedElement = document.activeElement;
       textarea.select();
       document.execCommand("copy");
       textarea.remove();
+      window.getSelection()?.removeAllRanges();
+      if (focusedElement instanceof HTMLElement) {
+        focusedElement.focus({ preventScroll: true });
+      } else {
+        document.activeElement?.blur();
+      }
     }
     return true;
   } catch {
@@ -494,6 +809,7 @@ function closeSidebar() {
 function openSettings() {
   settingsOverlay.hidden = false;
   window.requestAnimationFrame(() => settingsOverlay.classList.add("open"));
+  refreshPairingSettings();
 }
 
 function closeSettings() {
@@ -518,18 +834,37 @@ function showMessageContextMenu({ message, source = "mouse" }) {
   window.requestAnimationFrame(() => contextMenuOverlay.classList.add("open"));
 }
 
-function attachMessageInteractionHandlers(element, message) {
-  element.draggable = true;
+function hasActiveTextSelectionInside(element) {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || !selection.toString().trim()) {
+    return false;
+  }
 
-  element.addEventListener("selectstart", (event) => {
-    event.preventDefault();
-  });
+  const anchorNode = selection.anchorNode;
+  const focusNode = selection.focusNode;
+  return Boolean(
+    anchorNode &&
+    focusNode &&
+    element.contains(anchorNode) &&
+    element.contains(focusNode)
+  );
+}
+
+function attachMessageInteractionHandlers(element, message) {
+  element.draggable = isFileMessage(message);
 
   element.addEventListener("dragstart", (event) => {
+    if (hasActiveTextSelectionInside(element)) {
+      event.preventDefault();
+      return;
+    }
     fillDragData(event.dataTransfer, message);
   });
 
   element.addEventListener("contextmenu", (event) => {
+    if (hasActiveTextSelectionInside(element)) {
+      return;
+    }
     event.preventDefault();
     showMessageContextMenu({
       message,
@@ -794,13 +1129,17 @@ function renderMessage(message) {
     bubble.append(fileFallbackLink(message));
   } else if (message.kind === "link") {
     const link = document.createElement("a");
+    link.className = "message-text";
     link.href = message.text;
     link.target = "_blank";
     link.rel = "noreferrer";
     link.textContent = message.text;
     bubble.append(link);
   } else {
-    bubble.textContent = message.text;
+    const text = document.createElement("div");
+    text.className = "message-text";
+    text.textContent = message.text;
+    bubble.append(text);
   }
 
   const meta = document.createElement("div");
@@ -951,7 +1290,11 @@ async function sendText(text) {
   });
   if (response.status === 401 || response.status === 403) {
     clearPairingCredentials();
-    showPairingPanel("Pairing истек. Введите PIN заново");
+    showPairingPanel("Требуется повторный pairing", {
+      status: "required",
+      summary: "Device token не принят сервером",
+      open: true,
+    });
   }
   if (!response.ok) throw new Error("Не удалось отправить сообщение");
 }
@@ -971,7 +1314,11 @@ async function sendFile(file) {
   });
   if (response.status === 401 || response.status === 403) {
     clearPairingCredentials();
-    showPairingPanel("Pairing истек. Введите PIN заново");
+    showPairingPanel("Требуется повторный pairing", {
+      status: "required",
+      summary: "Device token не принят сервером",
+      open: true,
+    });
   }
   if (!response.ok) throw new Error("Не удалось отправить файл");
 }
@@ -1082,7 +1429,10 @@ function connectWebSocket() {
     if (event.code === 1008) {
       clearPairingCredentials();
       connectionStatus.textContent = `Требуется pairing · ${currentDeviceLabel()}`;
-      showPairingPanel("Pairing истек. Введите PIN заново");
+      showPairingPanel("Требуется повторный pairing", {
+        status: "required",
+        summary: "WebSocket отклонён: device_token не принят",
+      });
       return;
     }
     if (!isPaired()) {
@@ -1118,7 +1468,10 @@ settingsOverlay.addEventListener("click", (event) => {
   if (event.target === settingsOverlay) closeSettings();
 });
 requestPairCodeButton.addEventListener("click", requestPairCode);
+copyPairCodeButton.addEventListener("click", copyPairCode);
 pairButton.addEventListener("click", pairDevice);
+repairPairingButton.addEventListener("click", repairPairing);
+resetPairingButton.addEventListener("click", resetPairing);
 pairingCodeInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     event.preventDefault();

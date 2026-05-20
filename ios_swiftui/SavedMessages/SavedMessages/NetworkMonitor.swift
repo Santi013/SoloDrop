@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import Network
 
 @MainActor
@@ -15,10 +16,12 @@ final class NetworkMonitor: ObservableObject {
         didStart = true
 
         monitor.pathUpdateHandler = { [weak self] path in
+            guard let monitor = self else { return }
+            let available = path.status == .satisfied
+            let usesWiFi = path.usesInterfaceType(.wifi)
             Task { @MainActor in
-                let available = path.status == .satisfied
-                self?.isNetworkAvailable = available
-                self?.usesWiFi = path.usesInterfaceType(.wifi)
+                monitor.isNetworkAvailable = available
+                monitor.usesWiFi = usesWiFi
                 onChange(available)
             }
         }

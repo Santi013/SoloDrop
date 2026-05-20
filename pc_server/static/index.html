@@ -40,19 +40,6 @@
         </div>
       </header>
 
-      <section id="pairingPanel" class="pairing-panel" hidden aria-live="polite">
-        <div class="pairing-copy">
-          <strong>Pairing</strong>
-          <span id="pairingStatus">Проверка сервера...</span>
-          <small>Device ID: <code id="deviceIdLabel"></code></small>
-        </div>
-        <div class="pairing-actions">
-          <button id="requestPairCodeButton" class="secondary-button" type="button">Получить PIN</button>
-          <input id="pairingCodeInput" class="pairing-input" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="PIN" />
-          <button id="pairButton" class="primary-button" type="button">Подключить</button>
-        </div>
-      </section>
-
       <section id="messageList" class="message-list" aria-label="Лента сообщений"></section>
 
       <form id="composer" class="composer">
@@ -74,16 +61,90 @@
           </div>
           <button id="closeSettingsButton" class="icon-button" type="button" title="Закрыть">×</button>
         </div>
-        <label class="settings-row">
-          <span>
-            <strong>Автосохранение</strong>
-            <small>Полученные файлы будут сохраняться автоматически</small>
-          </span>
-          <span class="autosave-toggle">
-            <input id="autosaveToggle" type="checkbox" />
-            <span class="toggle-track" aria-hidden="true"></span>
-          </span>
-        </label>
+        <div class="settings-body">
+          <section id="pairingPanel" class="settings-section pairing-panel" aria-live="polite">
+            <div class="settings-section-header">
+              <div>
+                <h3>Pairing / Подключение устройств</h3>
+                <p id="pairingSummary">Проверка сервера...</p>
+              </div>
+              <span id="pairingStatusBadge" class="status-badge">Проверка</span>
+            </div>
+
+            <div class="settings-grid">
+              <div class="settings-field">
+                <span>Pairing status</span>
+                <strong id="pairingStatus">Проверка сервера...</strong>
+              </div>
+              <div class="settings-field">
+                <span>Device ID</span>
+                <code id="deviceIdLabel"></code>
+              </div>
+              <div class="settings-field">
+                <span>Device</span>
+                <strong id="deviceNameLabel"></strong>
+              </div>
+              <div class="settings-field">
+                <span>Trusted status</span>
+                <strong id="trustStatusLabel">Проверка...</strong>
+              </div>
+            </div>
+
+            <div class="pin-control">
+              <div>
+                <span class="field-label">PIN</span>
+                <strong id="pairCodeValue">Не запрошен</strong>
+                <small id="pairCodeExpiry">Срок действия появится после запроса</small>
+              </div>
+              <div class="pairing-actions">
+                <button id="requestPairCodeButton" class="secondary-button" type="button">Получить PIN</button>
+                <button id="copyPairCodeButton" class="secondary-button" type="button" disabled>Скопировать PIN</button>
+              </div>
+            </div>
+
+            <div class="pairing-input-row">
+              <input id="pairingCodeInput" class="pairing-input" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="PIN" aria-label="PIN" />
+              <button id="pairButton" class="primary-button" type="button">Подключить</button>
+            </div>
+            <p id="pairingError" class="settings-error" hidden></p>
+
+            <div class="pairing-actions split">
+              <button id="repairPairingButton" class="secondary-button" type="button">Повторить pairing</button>
+              <button id="resetPairingButton" class="secondary-button danger-button" type="button">Сбросить pairing</button>
+            </div>
+
+            <div class="settings-grid server-grid">
+              <div class="settings-field">
+                <span>Server URL</span>
+                <code id="serverUrlLabel"></code>
+              </div>
+              <div class="settings-field">
+                <span>Bonjour / discovery</span>
+                <strong id="bonjourStatusLabel">Проверка...</strong>
+              </div>
+              <div class="settings-field">
+                <span>Manual address</span>
+                <code id="manualAddressLabel"></code>
+              </div>
+            </div>
+
+            <div class="trusted-devices">
+              <div class="field-label">Connected devices</div>
+              <div id="trustedDevicesList" class="trusted-devices-list">Проверка...</div>
+            </div>
+          </section>
+
+          <label class="settings-row">
+            <span>
+              <strong>Автосохранение</strong>
+              <small>Полученные файлы будут сохраняться автоматически</small>
+            </span>
+            <span class="autosave-toggle">
+              <input id="autosaveToggle" type="checkbox" />
+              <span class="toggle-track" aria-hidden="true"></span>
+            </span>
+          </label>
+        </div>
       </section>
     </div>
 
