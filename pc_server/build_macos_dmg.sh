@@ -11,6 +11,7 @@ sanitize_output() {
 
 PYTHON="${PYTHON:-python3}"
 APP_NAME="SoloDrop"
+APP_VERSION="0.3.0"
 APP_BUNDLE="dist/${APP_NAME}.app"
 DMG_ROOT="build/macos/dmg-root"
 ICONSET="build/macos/${APP_NAME}.iconset"
@@ -62,6 +63,10 @@ if [ -f "$ICON_ICNS" ]; then
 fi
 
 .venv/bin/python -m PyInstaller "${PYINSTALLER_ARGS[@]}" macos_app.py 2>&1 | sanitize_output
+
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${APP_VERSION}" "$APP_BUNDLE/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${APP_VERSION}" "$APP_BUNDLE/Contents/Info.plist" 2>/dev/null \
+  || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string ${APP_VERSION}" "$APP_BUNDLE/Contents/Info.plist"
 
 find "$APP_BUNDLE" -path "*.dist-info/RECORD" -delete
 find "$APP_BUNDLE" -type d -name "__pycache__" -prune -exec rm -rf {} +

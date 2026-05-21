@@ -1,5 +1,5 @@
 #define MyAppName "SoloDrop Server"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "0.3.0"
 #define MyAppPublisher "SoloDrop"
 #define MyAppExeName "SoloDropServer.exe"
 

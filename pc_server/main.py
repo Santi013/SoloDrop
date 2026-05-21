@@ -75,7 +75,7 @@ STATIC_DIR = RESOURCE_DIR / "static"
 if not STATIC_DIR.exists():
     STATIC_DIR = BASE_DIR / "static"
 APP_NAME = "SoloDrop"
-APP_VERSION = "1.0.0"
+APP_VERSION = "0.3.0-alpha"
 ADMIN_SESSION_COOKIE = "solodrop_admin_session"
 ADMIN_SESSION_HEADER = "x-solodrop-admin-session"
 ADMIN_SESSION_TTL_SECONDS = 12 * 60 * 60
