@@ -330,20 +330,56 @@ body.dragging-file {
 }
 
 .pin-control {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 0;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 94%, var(--background));
 }
 
-.pin-control small {
+.pin-content {
+  min-width: 0;
+}
+
+.pin-content h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.pin-code {
+  display: inline-flex;
+  align-items: center;
+  min-height: 54px;
+  margin: 0 0 10px;
+  font-size: 38px;
+  line-height: 1;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.qr-panel {
+  display: grid;
+  place-items: center;
+  min-height: 136px;
+  padding-left: 18px;
+  border-left: 1px solid var(--border);
+}
+
+.pair-qr {
   display: block;
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: 12px;
+  width: 128px;
+  height: 128px;
+  border-radius: 8px;
+  background: #ffffff;
+  image-rendering: pixelated;
+}
+
+.pair-qr[hidden] {
+  display: none;
 }
 
 .pairing-actions {
@@ -352,29 +388,6 @@ body.dragging-file {
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
-}
-
-.pairing-actions.split {
-  justify-content: space-between;
-}
-
-.pairing-input-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-}
-
-.pairing-input {
-  width: 100%;
-  min-width: 0;
-  height: 36px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text);
-  font: inherit;
-  text-align: center;
-  letter-spacing: 0;
 }
 
 .primary-button,
@@ -871,15 +884,35 @@ body.dragging-file {
     max-height: 92vh;
   }
 
-  .settings-grid,
-  .pairing-input-row {
+  .settings-grid {
     grid-template-columns: 1fr;
   }
 
-  .pin-control,
   .settings-section-header {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .pin-control {
+    grid-template-columns: 1fr;
+  }
+
+  .qr-panel {
+    min-height: 122px;
+    padding-top: 12px;
+    padding-left: 0;
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+
+  .pair-qr {
+    width: 118px;
+    height: 118px;
+  }
+
+  .pin-code {
+    min-height: 46px;
+    font-size: 32px;
   }
 
   .pairing-actions {

@@ -35,6 +35,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response
 
 try:
     from PIL import Image
@@ -66,6 +67,9 @@ if not STATIC_DIR.exists():
     STATIC_DIR = BASE_DIR / "static"
 APP_NAME = "SoloDrop"
 APP_VERSION = "1.0.0"
+ADMIN_SESSION_COOKIE = "solodrop_admin_session"
+ADMIN_SESSION_HEADER = "x-solodrop-admin-session"
+ADMIN_SESSION_TTL_SECONDS = 12 * 60 * 60
 
 logger = logging.getLogger("solodrop")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -497,10 +501,144 @@ def ensure_preview_for_row(connection: sqlite3.Connection, row: sqlite3.Row) -> 
     return connection.execute("SELECT * FROM items WHERE id = ?", (row["id"],)).fetchone()
 
 
+admin_sessions: dict[str, datetime] = {}
+admin_sessions_lock = threading.Lock()
+
+
+def same_host_addresses() -> set[str]:
+    addresses = {"127.0.0.1", "::1", "localhost", get_lan_ip()}
+    try:
+        addresses.add(socket.gethostbyname(socket.gethostname()))
+    except OSError:
+        pass
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None):
+            addresses.add(str(info[4][0]))
+    except OSError:
+        pass
+    return {address.lower() for address in addresses if address}
+
+
+def is_same_host_address(host: str | None) -> bool:
+    if not host:
+        return False
+    normalized = host.strip().strip("[]").lower()
+    return normalized in same_host_addresses()
+
+
 def is_local_request(request: Request) -> bool:
     if not request.client:
         return False
-    return request.client.host in {"127.0.0.1", "::1", "localhost"}
+    return is_same_host_address(request.client.host)
+
+
+def prune_admin_sessions(current_time: datetime | None = None) -> None:
+    timestamp = current_time or datetime.now(timezone.utc)
+    expired = [token for token, expires_at in admin_sessions.items() if expires_at <= timestamp]
+    for token in expired:
+        admin_sessions.pop(token, None)
+
+
+def create_admin_session() -> str:
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=ADMIN_SESSION_TTL_SECONDS)
+    with admin_sessions_lock:
+        prune_admin_sessions()
+        admin_sessions[token] = expires_at
+    return token
+
+
+def is_valid_admin_session(token: str | None) -> bool:
+    if not token:
+        return False
+    with admin_sessions_lock:
+        prune_admin_sessions()
+        expires_at = admin_sessions.get(token)
+        if not expires_at:
+            return False
+        if expires_at <= datetime.now(timezone.utc):
+            admin_sessions.pop(token, None)
+            return False
+        return True
+
+
+def admin_session_token_from_request(request: Request) -> str | None:
+    return (
+        request.headers.get(ADMIN_SESSION_HEADER)
+        or request.cookies.get(ADMIN_SESSION_COOKIE)
+        or request.query_params.get("admin_session")
+        or request.query_params.get("adminSession")
+    )
+
+
+def is_admin_request(request: Request) -> bool:
+    return is_local_request(request) or is_valid_admin_session(admin_session_token_from_request(request))
+
+
+def admin_session_token_from_websocket(websocket: WebSocket) -> str | None:
+    return (
+        websocket.query_params.get("admin_session")
+        or websocket.query_params.get("adminSession")
+        or websocket.cookies.get(ADMIN_SESSION_COOKIE)
+        or websocket.headers.get(ADMIN_SESSION_HEADER)
+    )
+
+
+def is_admin_websocket(websocket: WebSocket) -> bool:
+    client_host = websocket.client.host if websocket.client else None
+    return is_same_host_address(client_host) or is_valid_admin_session(admin_session_token_from_websocket(websocket))
+
+
+def create_pairing_code() -> tuple[str, str]:
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    created_at = datetime.now(timezone.utc)
+    expires_at = created_at + timedelta(seconds=config.pairing_code_ttl_seconds)
+    with database_connection() as connection:
+        connection.execute("DELETE FROM pairing_codes")
+        connection.execute(
+            "INSERT INTO pairing_codes (code, created_at, expires_at) VALUES (?, ?, ?)",
+            (code, created_at.isoformat(), expires_at.isoformat()),
+        )
+        connection.commit()
+    return code, expires_at.isoformat()
+
+
+def pairing_payload(code: str, expires_at: str) -> dict[str, Any]:
+    lan_host = get_lan_ip()
+    base = server_base_url()
+    lan_base = server_base_url(lan_host)
+    return {
+        "type": "solodrop.pairing",
+        "version": 1,
+        "app": APP_NAME,
+        "serverUrl": base,
+        "lanServerUrl": lan_base,
+        "pairVerifyUrl": f"{base}/pair/verify",
+        "lanPairVerifyUrl": f"{lan_base}/pair/verify",
+        "code": code,
+        "pairCode": code,
+        "expiresAt": expires_at,
+        "host": config.public_host,
+        "port": config.port,
+        "manualEntry": f"{lan_host}:{config.port}",
+        "httpsEnabled": config.https_enabled,
+    }
+
+
+def get_pairing_code_expiry(code: str) -> str | None:
+    with database_connection() as connection:
+        row = connection.execute("SELECT expires_at FROM pairing_codes WHERE code = ?", (code,)).fetchone()
+    if not row:
+        return None
+    expires_at = row["expires_at"]
+    if parse_iso(expires_at) < datetime.now(timezone.utc):
+        return None
+    return expires_at
+
+
+def is_browser_device_name(device_name: str | None) -> bool:
+    normalized = (device_name or "").strip().lower()
+    return normalized in {"solodrop pc", "solodrop пк", "solodrop mac"}
 
 
 def hash_device_token(token: str) -> str:
@@ -536,7 +674,7 @@ def require_device(device_id: str | None, device_token: str | None = None) -> No
 
 
 def require_remote_or_paired(request: Request, device_id: str | None, device_token: str | None = None) -> None:
-    if is_local_request(request):
+    if is_admin_request(request):
         return
     require_device(device_id, device_token)
 
@@ -737,6 +875,25 @@ def legacy_health() -> dict[str, Any]:
     return health()
 
 
+@app.post("/admin/session")
+def admin_session(response: Response) -> dict[str, Any]:
+    token = create_admin_session()
+    response.set_cookie(
+        ADMIN_SESSION_COOKIE,
+        token,
+        max_age=ADMIN_SESSION_TTL_SECONDS,
+        httponly=True,
+        samesite="lax",
+        secure=config.https_enabled,
+    )
+    return {
+        "trusted": True,
+        "sessionType": "admin",
+        "adminSessionToken": token,
+        "expiresInSeconds": ADMIN_SESSION_TTL_SECONDS,
+    }
+
+
 @app.get("/connect/config")
 def connection_config() -> dict[str, Any]:
     ip = get_lan_ip()
@@ -763,9 +920,27 @@ def connection_config() -> dict[str, Any]:
 
 
 @app.get("/pair/qr")
-def pair_qr() -> StreamingResponse:
-    payload = connection_config()
-    image = qrcode.make(json.dumps(payload, ensure_ascii=False))
+def pair_qr(code: str | None = Query(default=None)) -> StreamingResponse:
+    if config.pairing_enabled:
+        if code:
+            expires_at = get_pairing_code_expiry(code)
+            if not expires_at:
+                raise HTTPException(status_code=404, detail="Pairing code is not active")
+        else:
+            code, expires_at = create_pairing_code()
+        payload = pairing_payload(code, expires_at)
+    else:
+        payload = connection_config()
+
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=8,
+        border=4,
+    )
+    qr.add_data(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+    qr.make(fit=True)
+    image = qr.make_image(fill_color="black", back_color="white")
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
     buffer.seek(0)
@@ -775,27 +950,36 @@ def pair_qr() -> StreamingResponse:
 @app.get("/pair/code")
 def pair_code() -> dict[str, Any]:
     if not config.pairing_enabled:
-        return {"pairingEnabled": False, "code": None, "expiresAt": None}
+        return {"pairingEnabled": False, "code": None, "expiresAt": None, "pairingPayload": None, "qrUrl": None}
 
-    code = f"{secrets.randbelow(1_000_000):06d}"
-    created_at = datetime.now(timezone.utc)
-    expires_at = created_at + timedelta(seconds=config.pairing_code_ttl_seconds)
-    with database_connection() as connection:
-        connection.execute("DELETE FROM pairing_codes WHERE expires_at < ?", (now_iso(),))
-        connection.execute(
-            "INSERT INTO pairing_codes (code, created_at, expires_at) VALUES (?, ?, ?)",
-            (code, created_at.isoformat(), expires_at.isoformat()),
-        )
-        connection.commit()
-    return {"pairingEnabled": True, "code": code, "expiresAt": expires_at.isoformat()}
+    code, expires_at = create_pairing_code()
+    return {
+        "pairingEnabled": True,
+        "code": code,
+        "expiresAt": expires_at,
+        "pairingPayload": pairing_payload(code, expires_at),
+        "qrUrl": f"/pair/qr?code={code}",
+    }
 
 
 @app.get("/pair/status")
 def pair_status(
+    request: Request,
     device_id: str | None = Query(default=None),
     device_token: str | None = Query(default=None),
 ) -> dict[str, Any]:
     normalized_device_id = normalize_uuid(device_id)
+    if is_admin_request(request):
+        return {
+            "pairingEnabled": config.pairing_enabled,
+            "paired": True,
+            "trusted": True,
+            "tokenValid": True,
+            "deviceId": None,
+            "device": None,
+            "sessionType": "admin",
+        }
+
     if not config.pairing_enabled:
         return {
             "pairingEnabled": False,
@@ -804,6 +988,7 @@ def pair_status(
             "tokenValid": True,
             "deviceId": normalized_device_id,
             "device": None,
+            "sessionType": "device",
         }
 
     device: dict[str, Any] | None = None
@@ -845,6 +1030,7 @@ def pair_status(
         "tokenValid": token_valid,
         "deviceId": normalized_device_id,
         "device": device,
+        "sessionType": "device",
     }
 
 
@@ -887,7 +1073,7 @@ def list_devices() -> list[dict[str, Any]]:
         rows = connection.execute(
             "SELECT device_id, device_name, paired_at, last_seen_at FROM devices ORDER BY paired_at ASC"
         ).fetchall()
-    return [dict(row) for row in rows]
+    return [dict(row) for row in rows if not is_browser_device_name(row["device_name"])]
 
 
 @app.delete("/devices/{device_id}")
@@ -1152,7 +1338,7 @@ def sync_pull(
 async def websocket_endpoint(websocket: WebSocket) -> None:
     device_id = websocket.query_params.get("device_id") or websocket.query_params.get("deviceId")
     device_token = websocket.query_params.get("device_token") or websocket.query_params.get("deviceToken")
-    if not is_device_whitelisted(device_id, device_token):
+    if not is_admin_websocket(websocket) and not is_device_whitelisted(device_id, device_token):
         await websocket.close(code=1008)
         return
 

@@ -28,6 +28,6 @@ if errorlevel 1 (
 
 echo.
 echo Installer complete:
-echo   %CD%\installer\SoloDropSetup.exe
+echo   %CD%\installer\SoloDropSetup-Windows.exe
 echo.
 pause

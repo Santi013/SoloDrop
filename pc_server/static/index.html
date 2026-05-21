@@ -7,7 +7,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=20260517-icons" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/app-icon-180.png?v=20260517-icons" />
     <link rel="manifest" href="/manifest.webmanifest?v=20260517-icons" />
-    <link rel="stylesheet" href="/style.css?v=20260517-icons" />
+    <link rel="stylesheet" href="/style.css?v=20260521-admin-pairing" />
   </head>
   <body>
     <div id="sidebarOverlay" class="sidebar-overlay" hidden></div>
@@ -91,27 +91,19 @@
             </div>
 
             <div class="pin-control">
-              <div>
-                <span class="field-label">PIN</span>
-                <strong id="pairCodeValue">Не запрошен</strong>
-                <small id="pairCodeExpiry">Срок действия появится после запроса</small>
+              <div class="pin-content">
+                <h4>PIN для подключения устройства</h4>
+                <strong id="pairCodeValue" class="pin-code">------</strong>
+                <div class="pairing-actions">
+                  <button id="requestPairCodeButton" class="primary-button" type="button">Обновить</button>
+                  <button id="copyPairCodeButton" class="secondary-button" type="button" disabled>Скопировать</button>
+                </div>
               </div>
-              <div class="pairing-actions">
-                <button id="requestPairCodeButton" class="secondary-button" type="button">Получить PIN</button>
-                <button id="copyPairCodeButton" class="secondary-button" type="button" disabled>Скопировать PIN</button>
+              <div class="qr-panel" aria-label="QR code">
+                <img id="pairQrImage" class="pair-qr" alt="QR code" hidden />
               </div>
-            </div>
-
-            <div class="pairing-input-row">
-              <input id="pairingCodeInput" class="pairing-input" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="PIN" aria-label="PIN" />
-              <button id="pairButton" class="primary-button" type="button">Подключить</button>
             </div>
             <p id="pairingError" class="settings-error" hidden></p>
-
-            <div class="pairing-actions split">
-              <button id="repairPairingButton" class="secondary-button" type="button">Повторить pairing</button>
-              <button id="resetPairingButton" class="secondary-button danger-button" type="button">Сбросить pairing</button>
-            </div>
 
             <div class="settings-grid server-grid">
               <div class="settings-field">
@@ -173,6 +165,6 @@
     </div>
 
     <div id="toast" class="toast" hidden></div>
-    <script src="/app.js?v=20260517-icons"></script>
+    <script src="/app.js?v=20260521-admin-pairing"></script>
   </body>
 </html>

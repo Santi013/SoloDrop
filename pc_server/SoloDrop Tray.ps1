@@ -6,13 +6,15 @@ Add-Type -AssemblyName System.Drawing
 $AppDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $LogDir = Join-Path $AppDir "logs"
 $LogFile = Join-Path $LogDir "solodrop.log"
-$StartScript = Join-Path $AppDir "Start SoloDrop.cmd"
+$ServerExe = Join-Path $AppDir "SoloDropServer.exe"
+$StartScript = Join-Path $AppDir "start_server.bat"
 $TrayIconPath = Join-Path $AppDir "static\icons\tray-icon.ico"
 
 # УКАЖИ НУЖНЫЙ ПОРТ ЗДЕСЬ
 $Port = 8000
 
 $ServerProcess = $null
+$KeepServerRunning = $true
 
 if (-not (Test-Path $LogDir)) {
     New-Item -ItemType Directory -Path $LogDir | Out-Null
@@ -34,24 +36,30 @@ function Test-SoloDropRunning {
 }
 
 function Start-SoloDrop {
+    $script:KeepServerRunning = $true
+
     if (Test-SoloDropRunning) {
         return
     }
 
-    $arguments = "/c `"`"$StartScript`" --quiet >> `"$LogFile`" 2>&1`""
-
     $info = New-Object System.Diagnostics.ProcessStartInfo
-    $info.FileName = "cmd.exe"
-    $info.Arguments = $arguments
     $info.WorkingDirectory = $AppDir
     $info.CreateNoWindow = $true
     $info.UseShellExecute = $false
     $info.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+    if (Test-Path $ServerExe) {
+        $info.FileName = $ServerExe
+    }
+    else {
+        $info.FileName = "cmd.exe"
+        $info.Arguments = "/c `"`"$StartScript`" --quiet >> `"$LogFile`" 2>&1`""
+    }
 
     $script:ServerProcess = [System.Diagnostics.Process]::Start($info)
 }
 
 function Stop-SoloDrop {
+    $script:KeepServerRunning = $false
     $serverPid = Get-SoloDropPid
 
     if ($serverPid) {
@@ -60,8 +68,10 @@ function Stop-SoloDrop {
 }
 
 function Restart-SoloDrop {
+    $script:KeepServerRunning = $true
     Stop-SoloDrop
     Start-Sleep -Seconds 1
+    $script:KeepServerRunning = $true
     Start-SoloDrop
 }
 
@@ -114,6 +124,7 @@ $stopItem.Add_Click({
 
 $exitItem = $menu.Items.Add("Exit")
 $exitItem.Add_Click({
+    $script:KeepServerRunning = $false
     Stop-SoloDrop
 
     $notifyIcon.Visible = $false
@@ -138,6 +149,9 @@ $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 5000
 
 $timer.Add_Tick({
+    if ($script:KeepServerRunning -and -not (Test-SoloDropRunning)) {
+        Start-SoloDrop
+    }
     Update-Tooltip
 })
 

@@ -3,6 +3,10 @@ setlocal
 
 cd /d "%~dp0"
 
+set "SOLODROP_QUIET=0"
+if /i "%~1"=="--quiet" set "SOLODROP_QUIET=1"
+if /i "%~1"=="/quiet" set "SOLODROP_QUIET=1"
+
 echo SoloDrop Server
 echo.
 
@@ -49,5 +53,5 @@ exit /b 0
 :failed
 echo.
 echo SoloDrop Server stopped with an error.
-pause
+if "%SOLODROP_QUIET%"=="0" pause
 exit /b 1
