@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject private var store: ChatStore
+    @EnvironmentObject private var languageSettings: AppLanguageSettings
     @State private var isShowingFileImporter = false
     @State private var isShowingSettings = false
     @State private var isShowingSidebar = false
@@ -22,7 +23,7 @@ struct ContentView: View {
                                 EmptyCurrentExchangeView()
                                     .padding(.top, 120)
                             } else {
-                                DateDividerView(title: dateTitle(for: currentDateKey))
+                                DateDividerView(title: languageSettings.dateTitle(for: currentDateKey))
                                 ForEach(visibleMessages) { message in
                                     MessageBubble(
                                         message: message,
@@ -63,7 +64,7 @@ struct ContentView: View {
                     }
 
                     if let errorText = store.errorText {
-                        Text(errorText)
+                        Text(languageSettings.localizedStatus(errorText))
                             .font(.footnote)
                             .foregroundStyle(.red)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -184,6 +185,7 @@ struct ContentView: View {
                 onSelectServer: store.select(server:),
                 onUseBonjour: { store.useBonjourDiscovery() },
                 onApplyManualServer: { store.applyManualServerOverride() },
+                onScannedQRCode: store.applyScannedQRCode,
                 onPair: store.pairWithCurrentServer,
                 onRetryFailed: store.retryFailedItems,
                 onResetPairing: store.resetPairing,
@@ -215,7 +217,7 @@ struct ContentView: View {
     private var historyGroups: [HistoryDayGroup] {
         let grouped = Dictionary(grouping: store.messages.filter { $0.kind == "file" }) { dayKey(for: $0.date) }
         return grouped.map { key, messages in
-            HistoryDayGroup(key: key, title: dateTitle(for: key), count: messages.count)
+            HistoryDayGroup(key: key, title: languageSettings.dateTitle(for: key), count: messages.count)
         }
         .sorted { $0.key > $1.key }
     }
@@ -232,6 +234,8 @@ struct ContentView: View {
 }
 
 struct MessageBubble: View {
+    @EnvironmentObject private var languageSettings: AppLanguageSettings
+
     let message: Message
     let serverAddress: String
     let connectionStatus: String
@@ -306,20 +310,21 @@ struct MessageBubble: View {
     }
 
     private var metaText: String {
-        "\(message.sender == "ios" || message.sender == "iphone" ? "iPhone" : "ПК") · \(shortDate(message.createdAt)) · \(statusText)"
+        let senderName = message.sender == "ios" || message.sender == "iphone" ? "iPhone" : languageSettings.localized("ПК")
+        return "\(senderName) · \(languageSettings.shortDate(message.createdAt)) · \(statusText)"
     }
 
     private var statusText: String {
         switch message.syncStatus {
         case .pending:
             if connectionStatus == "Офлайн" || connectionStatus == "Требуется pairing" {
-                return "offline"
+                return languageSettings.localized("offline")
             }
-            return "pending"
+            return languageSettings.localized("pending")
         case .synced:
-            return "synced"
+            return languageSettings.localized("synced")
         case .failed:
-            return "failed"
+            return languageSettings.localized("failed")
         }
     }
 
@@ -342,17 +347,6 @@ struct MessageBubble: View {
         }
         let trimmedServer = serverAddress.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         return URL(string: "\(trimmedServer)\(path)")
-    }
-
-    private func shortDate(_ value: String) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let date = formatter.date(from: value) ?? ISO8601DateFormatter().date(from: value) ?? Date()
-
-        let output = DateFormatter()
-        output.locale = Locale(identifier: "ru_RU")
-        output.dateFormat = "dd.MM HH:mm"
-        return output.string(from: date)
     }
 
     private func copyMessage() {
@@ -483,22 +477,6 @@ private func dayKey(for date: Date) -> String {
     return formatter.string(from: date)
 }
 
-private func dateTitle(for key: String) -> String {
-    let formatter = DateFormatter()
-    formatter.calendar = .current
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.dateFormat = "yyyy-MM-dd"
-    guard let date = formatter.date(from: key) else { return key }
-
-    if Calendar.current.isDateInToday(date) { return "Сегодня" }
-    if Calendar.current.isDateInYesterday(date) { return "Вчера" }
-
-    let output = DateFormatter()
-    output.locale = Locale(identifier: "ru_RU")
-    output.dateFormat = "d MMMM yyyy"
-    return output.string(from: date)
-}
-
 struct HistoryDayGroup: Identifiable {
     let key: String
     let title: String
@@ -583,6 +561,8 @@ struct DateDividerView: View {
 }
 
 struct ConnectionBadge: View {
+    @EnvironmentObject private var languageSettings: AppLanguageSettings
+
     let status: String
     let isSyncing: Bool
 
@@ -591,12 +571,19 @@ struct ConnectionBadge: View {
             Circle()
                 .fill(color)
                 .frame(width: 7, height: 7)
-            Text(isSyncing ? "syncing" : status.lowercased())
+            Text(labelText)
                 .font(.caption2.weight(.semibold))
                 .lineLimit(1)
         }
         .foregroundStyle(.secondary)
-        .accessibilityLabel("Статус подключения: \(status)")
+        .accessibilityLabel(
+            String(format: languageSettings.localized("Статус подключения: %@"), languageSettings.localizedStatus(status))
+        )
+    }
+
+    private var labelText: String {
+        let value = isSyncing ? languageSettings.localized("Синхронизация") : languageSettings.localizedStatus(status)
+        return value.lowercased(with: languageSettings.locale)
     }
 
     private var color: Color {
@@ -608,17 +595,19 @@ struct ConnectionBadge: View {
 }
 
 struct SyncResultBanner: View {
+    @EnvironmentObject private var languageSettings: AppLanguageSettings
+
     let text: String
 
     var body: some View {
-        Text(text)
+        Text(languageSettings.localizedStatus(text))
             .font(.footnote.weight(.medium))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
             .background(Color(.systemBackground))
-            .accessibilityLabel(text)
+            .accessibilityLabel(languageSettings.localizedStatus(text))
     }
 }
 
@@ -678,6 +667,9 @@ struct ComposerBar: View {
 }
 
 struct SettingsView: View {
+    @EnvironmentObject private var languageSettings: AppLanguageSettings
+    @State private var isShowingQRScanner = false
+
     let serverAddress: String
     @Binding var manualServerAddress: String
     @Binding var manualServerOverrideEnabled: Bool
@@ -696,6 +688,7 @@ struct SettingsView: View {
     let onSelectServer: (DiscoveredServer) -> Void
     let onUseBonjour: () -> Void
     let onApplyManualServer: () -> Void
+    let onScannedQRCode: (String) -> Void
     let onPair: () -> Void
     let onRetryFailed: () -> Void
     let onResetPairing: () -> Void
@@ -705,15 +698,28 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("Язык") {
+                    Picker("Язык", selection: $languageSettings.current) {
+                        ForEach(AppLanguage.allCases) { language in
+                            Text(language.nativeName).tag(language)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Text("Изменения применяются сразу и сохраняются после перезапуска.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 Section("Сервер на ПК") {
                     LabeledContent("Адрес", value: serverAddress)
-                    LabeledContent("Статус", value: connectionStatus)
-                    LabeledContent("REST", value: restHealthStatus)
-                    LabeledContent("WebSocket", value: webSocketStatus)
-                    LabeledContent("Bonjour", value: discoveryStatus)
-                    LabeledContent("Pairing", value: pairingStatus)
-                    LabeledContent("Trusted", value: trustedDeviceStatus)
-                    Text(connectedServerInfo)
+                    LabeledContent("Статус", value: languageSettings.localizedStatus(connectionStatus))
+                    LabeledContent("REST", value: languageSettings.localizedStatus(restHealthStatus))
+                    LabeledContent("WebSocket", value: languageSettings.localizedStatus(webSocketStatus))
+                    LabeledContent("Bonjour", value: languageSettings.localizedStatus(discoveryStatus))
+                    LabeledContent("Pairing", value: languageSettings.localizedStatus(pairingStatus))
+                    LabeledContent("Trusted", value: languageSettings.localizedStatus(trustedDeviceStatus))
+                    Text(languageSettings.localizedStatus(connectedServerInfo))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -737,6 +743,11 @@ struct SettingsView: View {
                         }
                     }
                     Button("Использовать Bonjour / solodrop.local", action: onUseBonjour)
+                    Button {
+                        isShowingQRScanner = true
+                    } label: {
+                        Label("Сканировать QR", systemImage: "qrcode.viewfinder")
+                    }
                     if manualServerOverrideEnabled {
                         Text("Manual override включён: Bonjour показывается, но не меняет активный адрес автоматически.")
                             .font(.caption)
@@ -745,12 +756,21 @@ struct SettingsView: View {
                 }
 
                 Section("Pairing") {
-                    TextField("PIN с ПК", text: $pairingCode)
-                        .keyboardType(.numberPad)
-                    Button(pairingStatus == "Подключено" ? "Re-pair с PIN" : "Подключить по PIN", action: onPair)
-                        .disabled(pairingCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    if hasTrustedPairing {
+                        Text("PIN не нужен: iPhone подключается автоматически через сохранённый device_token.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("PIN нужен только для первичного сопряжения, нового сервера или сброса trusted devices.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField("PIN с ПК", text: $pairingCode)
+                            .keyboardType(.numberPad)
+                        Button("Подключить по PIN", action: onPair)
+                            .disabled(pairingCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
                     if let errorText {
-                        Text(errorText)
+                        Text(languageSettings.localizedStatus(errorText))
                             .font(.caption)
                             .foregroundStyle(.red)
                     }
@@ -783,11 +803,21 @@ struct SettingsView: View {
             }
             .navigationTitle("Настройки")
             .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $isShowingQRScanner) {
+                QRCodeScannerView { value in
+                    onScannedQRCode(value)
+                }
+                .environment(\.locale, languageSettings.locale)
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Готово", action: onSave)
                 }
             }
         }
+    }
+
+    private var hasTrustedPairing: Bool {
+        pairingStatus == "Подключено"
     }
 }

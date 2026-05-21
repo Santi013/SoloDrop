@@ -1,7 +1,7 @@
 import Foundation
 
 enum SharedImportConstants {
-    static let appGroupIdentifier = "group.com.SoloDrop"
+    static let appGroupIdentifier = "group.com.solodrop.app"
 }
 
 struct SharedImportItem: Codable, Identifiable {

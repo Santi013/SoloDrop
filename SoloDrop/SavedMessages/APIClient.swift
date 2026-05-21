@@ -76,6 +76,20 @@ struct PairingResult: Decodable {
     }
 }
 
+struct PairingStatusResult: Decodable {
+    let pairingEnabled: Bool
+    let paired: Bool
+    let trusted: Bool
+    let tokenValid: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case pairingEnabled
+        case paired
+        case trusted
+        case tokenValid
+    }
+}
+
 enum WebSocketClientEvent {
     case connecting(generation: UUID)
     case connected(generation: UUID, reusedExistingConnection: Bool)
@@ -154,6 +168,26 @@ final class APIClient {
         let (data, response) = try await URLSession.shared.data(for: request)
         try validate(response: response, data: data)
         return try JSONDecoder().decode(PairingResult.self, from: data)
+    }
+
+    func pairStatus() async throws -> PairingStatusResult {
+        guard let baseURL,
+              var components = URLComponents(url: baseURL.appendingPathComponent("pair/status"), resolvingAgainstBaseURL: false) else {
+            throw APIClientError.invalidServerAddress
+        }
+
+        var items = [URLQueryItem(name: "device_id", value: deviceId)]
+        if let deviceToken {
+            items.append(URLQueryItem(name: "device_token", value: deviceToken))
+        }
+        components.queryItems = items
+
+        guard let url = components.url else { throw APIClientError.invalidServerAddress }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validate(response: response, data: data)
+        return try JSONDecoder().decode(PairingStatusResult.self, from: data)
     }
 
     func push(items: [Message]) async throws -> SyncPushResponse {

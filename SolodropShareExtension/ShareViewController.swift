@@ -6,7 +6,7 @@ final class ShareViewController: UIViewController {
 
     private let statusLabel: UILabel = {
         let label = UILabel()
-        label.text = "Сохраняем в SoloDrop..."
+        label.text = NSLocalizedString("Сохраняем в SoloDrop...", comment: "Share extension saving status")
         label.font = .preferredFont(forTextStyle: .headline)
         label.textAlignment = .center
         label.numberOfLines = 0
@@ -147,7 +147,7 @@ final class ShareViewController: UIViewController {
 
     private func presentFailure(_ error: Error) {
         activityIndicator.stopAnimating()
-        statusLabel.text = "Не удалось сохранить контент"
+        statusLabel.text = NSLocalizedString("Не удалось сохранить контент", comment: "Share extension failure status")
 
         let alert = UIAlertController(
             title: "SoloDrop",
@@ -155,7 +155,7 @@ final class ShareViewController: UIViewController {
             preferredStyle: .alert
         )
 
-        alert.addAction(UIAlertAction(title: "Закрыть", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: NSLocalizedString("Закрыть", comment: "Close alert"), style: .default) { [weak self] _ in
             self?.extensionContext?.cancelRequest(withError: error)
         })
 
@@ -169,7 +169,7 @@ private enum ShareExtensionError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noSupportedItems:
-            return "В выбранном контенте нет URL или поддерживаемого файла."
+            return NSLocalizedString("В выбранном контенте нет URL или поддерживаемого файла.", comment: "Share extension unsupported content error")
         }
     }
 }

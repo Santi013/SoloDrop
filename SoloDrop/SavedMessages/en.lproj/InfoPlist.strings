@@ -1,0 +1,4 @@
+"NSLocalNetworkUsageDescription" = "SoloDrop connects to the local server on your computer to exchange messages and files.";
+"NSCameraUsageDescription" = "SoloDrop uses the camera to scan a connection QR code.";
+"NSPhotoLibraryAddUsageDescription" = "SoloDrop saves received images to your photo library when autosave is enabled.";
+"CFBundleDisplayName" = "SoloDrop";

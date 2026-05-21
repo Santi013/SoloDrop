@@ -5,6 +5,7 @@ import SwiftUI
 struct SavedMessagesApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var store: ChatStore
+    @StateObject private var languageSettings = AppLanguageSettings()
 
     init() {
         let store = ChatStore()
@@ -18,6 +19,8 @@ struct SavedMessagesApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(store)
+                .environmentObject(languageSettings)
+                .environment(\.locale, languageSettings.locale)
                 .onChange(of: scenePhase) { newPhase in
                     print("[SoloDrop iOS] scenePhase changed \(String(describing: newPhase))")
                     if newPhase == .active {

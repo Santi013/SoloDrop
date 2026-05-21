@@ -66,13 +66,6 @@
 			);
 			target = 7F82C28C2FBA08BA00B907DE /* SolodropShareExtension */;
 		};
-		7F82C2A22FBA0DA900B907DE /* Exceptions for "SoloDrop" folder in "SolodropShareExtension" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				SharedImport.swift,
-			);
-			target = 7F82C28C2FBA08BA00B907DE /* SolodropShareExtension */;
-		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -80,7 +73,6 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				7F1843212FB92229008636E9 /* Exceptions for "SoloDrop" folder in "SoloDrop" target */,
-				7F82C2A22FBA0DA900B907DE /* Exceptions for "SoloDrop" folder in "SolodropShareExtension" target */,
 			);
 			path = SoloDrop;
 			sourceTree = "<group>";
@@ -221,6 +213,7 @@
 			knownRegions = (
 				en,
 				Base,
+				ru,
 			);
 			mainGroup = 7F1843092FB9207A008636E9;
 			minimizedProjectReferenceProxies = 1;
@@ -265,6 +258,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7FCD00032FCD000000000003 /* SharedImport.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

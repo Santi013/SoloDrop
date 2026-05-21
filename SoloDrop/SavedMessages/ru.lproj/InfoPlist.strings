@@ -1,0 +1,4 @@
+"NSLocalNetworkUsageDescription" = "Приложение подключается к локальному серверу на вашем ПК для обмена сообщениями и файлами.";
+"NSCameraUsageDescription" = "SoloDrop использует камеру, чтобы сканировать QR-код подключения.";
+"NSPhotoLibraryAddUsageDescription" = "SoloDrop сохраняет полученные изображения в вашу галерею, когда включено автосохранение.";
+"CFBundleDisplayName" = "SoloDrop";

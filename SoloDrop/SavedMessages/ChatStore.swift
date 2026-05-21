@@ -121,6 +121,7 @@ final class ChatStore: ObservableObject {
     private static let manualServerOverrideKey = "manualServerOverrideEnabled"
     private static let deviceTokenKey = "deviceToken"
     private static let pairedKey = "pairedDevice"
+    private static let pairedServerAddressKey = "pairedServerAddress"
 
     init(
         localStore: LocalStore? = nil,
@@ -142,10 +143,11 @@ final class ChatStore: ObservableObject {
         let resolvedServerAddress = shouldUseManualOverride
             ? ChatStore.normalizedServerAddress(initialManualAddress)
             : Self.defaultServerAddress
+        let storedDeviceToken = UserDefaults.standard.string(forKey: Self.deviceTokenKey)
         let resolvedAPIClient = APIClient(
             serverAddress: resolvedServerAddress,
             deviceId: resolvedDeviceId,
-            deviceToken: UserDefaults.standard.string(forKey: Self.deviceTokenKey)
+            deviceToken: storedDeviceToken
         )
 
         self.localStore = resolvedLocalStore
@@ -156,7 +158,15 @@ final class ChatStore: ObservableObject {
         self.apiClient = resolvedAPIClient
         let resolvedSyncManager = SyncManager(localStore: resolvedLocalStore, apiClient: resolvedAPIClient)
         self.syncManager = resolvedSyncManager
-        self.pairingStatus = UserDefaults.standard.bool(forKey: Self.pairedKey) ? "Подключено" : "Не подключено"
+        if storedDeviceToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            UserDefaults.standard.set(true, forKey: Self.pairedKey)
+            if UserDefaults.standard.string(forKey: Self.pairedServerAddressKey) == nil {
+                UserDefaults.standard.set(resolvedServerAddress, forKey: Self.pairedServerAddressKey)
+            }
+        }
+        self.pairingStatus = storedDeviceToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? "Подключено"
+            : "Не подключено"
         UserDefaults.standard.set(resolvedServerAddress, forKey: Self.serverAddressKey)
 
         discoveryService.$servers
@@ -175,6 +185,7 @@ final class ChatStore: ObservableObject {
             .store(in: &cancellables)
 
         updateConnectedServerInfo()
+        reconcilePairingForActiveServer()
         updateTrustedDeviceStatus()
     }
 
@@ -367,17 +378,23 @@ final class ChatStore: ObservableObject {
 
                 let result = try await apiClient.pair(code: code, deviceName: UIDevice.current.name)
                 if result.paired {
+                    let finalServerAddress = result.serverUrl.map(Self.normalizedServerAddress) ?? serverAddress
+                    if !manualServerOverrideEnabled, serverAddress != finalServerAddress {
+                        setActiveServerAddress(finalServerAddress, triggerSync: false, preservePairing: true)
+                    }
+
+                    guard let deviceToken = result.deviceToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+                          !deviceToken.isEmpty else {
+                        clearPairingState()
+                        pairingStatus = "Pairing сохранён, token отсутствует"
+                        updateConnectionPresentation()
+                        return
+                    }
+
+                    saveTrustedPairing(deviceToken: deviceToken)
                     pairingStatus = "Подключено"
                     pairingCode = ""
-                    UserDefaults.standard.set(true, forKey: Self.pairedKey)
-                    if let deviceToken = result.deviceToken {
-                        apiClient.deviceToken = deviceToken
-                        UserDefaults.standard.set(deviceToken, forKey: Self.deviceTokenKey)
-                    }
                     updateTrustedDeviceStatus()
-                    if let serverUrl = result.serverUrl, !manualServerOverrideEnabled {
-                        setActiveServerAddress(serverUrl, triggerSync: false)
-                    }
                     await syncNow()
                 }
             } catch {
@@ -428,6 +445,27 @@ final class ChatStore: ObservableObject {
         pairingStatus = "Не подключено"
         setWebSocketLifecycle(.disconnected)
         updateConnectionPresentation()
+    }
+
+    func applyScannedQRCode(_ value: String) {
+        do {
+            let payload = try Self.parseScannedConnectionPayload(value)
+            if let serverAddress = payload.serverAddress {
+                applyScannedServerAddress(serverAddress)
+            }
+            if let pairingCode = payload.pairingCode {
+                self.pairingCode = pairingCode
+            }
+            errorText = nil
+            if payload.pairingCode == nil {
+                showSyncResult("QR считан")
+            } else {
+                showSyncResult("QR считан · выполняется pairing")
+                pairWithCurrentServer()
+            }
+        } catch {
+            errorText = "QR-код не распознан. Введите адрес вручную."
+        }
     }
 
     func syncNow() async {
@@ -533,12 +571,16 @@ final class ChatStore: ObservableObject {
         resetConnectivityRetry()
 
         guard isPaired else {
-            apiClient.disconnectWebSocket(reason: "recovery without pairing")
-            setWebSocketLifecycle(.disconnected)
-            pairingStatus = "Требуется PIN"
-            refreshState = .failed
-            isSyncing = false
-            updateTrustedDeviceStatus()
+            requirePairing()
+            if showResult {
+                showSyncResult("Требуется pairing")
+            }
+            log("final connection state status=\(connectionStatus) rest=\(restHealthStatus) ws=\(webSocketStatus)")
+            return
+        }
+
+        guard await verifySavedTokenWithServer() else {
+            requirePairing(pairingStatus)
             if showResult {
                 showSyncResult("Требуется pairing")
             }
@@ -620,7 +662,21 @@ final class ChatStore: ObservableObject {
     }
 
     private var isPaired: Bool {
-        UserDefaults.standard.bool(forKey: Self.pairedKey)
+        hasTrustedPairingForActiveServer
+    }
+
+    private var savedDeviceToken: String? {
+        let token = apiClient.deviceToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return token?.isEmpty == false ? token : nil
+    }
+
+    private var hasTrustedPairingForActiveServer: Bool {
+        guard savedDeviceToken != nil,
+              UserDefaults.standard.bool(forKey: Self.pairedKey),
+              let pairedServerAddress = UserDefaults.standard.string(forKey: Self.pairedServerAddressKey) else {
+            return false
+        }
+        return Self.normalizedServerAddress(pairedServerAddress) == serverAddress
     }
 
     private func handleDiscoveredServers(_ servers: [DiscoveredServer]) {
@@ -645,7 +701,27 @@ final class ChatStore: ObservableObject {
             ?? candidates.first
     }
 
-    private func setActiveServerAddress(_ address: String, triggerSync: Bool) {
+    private func applyScannedServerAddress(_ address: String) {
+        let normalized = Self.normalizedServerAddress(address)
+        manualServerAddress = normalized
+
+        if Self.isStableBonjourAddress(normalized) {
+            if manualServerOverrideEnabled {
+                manualServerOverrideEnabled = false
+            } else {
+                setActiveServerAddress(normalized, triggerSync: true)
+            }
+            return
+        }
+
+        if manualServerOverrideEnabled {
+            applyManualServerOverride(triggerSync: true)
+        } else {
+            manualServerOverrideEnabled = true
+        }
+    }
+
+    private func setActiveServerAddress(_ address: String, triggerSync: Bool, preservePairing: Bool = false) {
         let normalized = Self.normalizedServerAddress(address)
         guard serverAddress != normalized else {
             updateConnectedServerInfo()
@@ -665,10 +741,15 @@ final class ChatStore: ObservableObject {
             return
         }
 
+        let shouldRequireNewPairing = !preservePairing && savedDeviceToken != nil
         apiClient.disconnectWebSocket(reason: "server address changed")
         setWebSocketLifecycle(.disconnected)
         serverAddress = normalized
         resetConnectivityRetry()
+        if shouldRequireNewPairing {
+            clearPairingState()
+            pairingStatus = "Сменился сервер · нужен PIN"
+        }
 
         if triggerSync {
             Task {
@@ -696,11 +777,73 @@ final class ChatStore: ObservableObject {
         connectedServerInfo = "\(host)\(port) · \(mode)"
     }
 
+    private func reconcilePairingForActiveServer() {
+        guard savedDeviceToken != nil else {
+            UserDefaults.standard.set(false, forKey: Self.pairedKey)
+            UserDefaults.standard.removeObject(forKey: Self.pairedServerAddressKey)
+            pairingStatus = "Не подключено"
+            return
+        }
+
+        if UserDefaults.standard.string(forKey: Self.pairedServerAddressKey) == nil {
+            UserDefaults.standard.set(serverAddress, forKey: Self.pairedServerAddressKey)
+        }
+
+        guard hasTrustedPairingForActiveServer else {
+            clearPairingState()
+            pairingStatus = "Сменился сервер · нужен PIN"
+            return
+        }
+
+        UserDefaults.standard.set(true, forKey: Self.pairedKey)
+        pairingStatus = "Подключено"
+    }
+
+    private func saveTrustedPairing(deviceToken: String) {
+        apiClient.deviceToken = deviceToken
+        UserDefaults.standard.set(deviceToken, forKey: Self.deviceTokenKey)
+        UserDefaults.standard.set(true, forKey: Self.pairedKey)
+        UserDefaults.standard.set(serverAddress, forKey: Self.pairedServerAddressKey)
+    }
+
+    private func requirePairing(_ status: String = "Требуется PIN") {
+        apiClient.disconnectWebSocket(reason: "recovery without trusted token")
+        setWebSocketLifecycle(.disconnected)
+        pairingStatus = status
+        refreshState = .failed
+        isSyncing = false
+        updateTrustedDeviceStatus()
+    }
+
+    private func verifySavedTokenWithServer() async -> Bool {
+        guard hasTrustedPairingForActiveServer else { return false }
+
+        do {
+            let status = try await apiClient.pairStatus()
+            guard !status.pairingEnabled || (status.paired && status.trusted && status.tokenValid) else {
+                clearPairingState()
+                pairingStatus = "Требуется PIN"
+                errorText = "Pairing/token не принят сервером. Локальная история сохранена."
+                updateConnectionPresentation()
+                return false
+            }
+
+            pairingStatus = "Подключено"
+            updateTrustedDeviceStatus()
+            return true
+        } catch {
+            log("pair/status check skipped error=\(error.localizedDescription)")
+            return hasTrustedPairingForActiveServer
+        }
+    }
+
     private func updateTrustedDeviceStatus() {
-        if isPaired, apiClient.deviceToken != nil {
+        if hasTrustedPairingForActiveServer {
             trustedDeviceStatus = "Trusted device · token сохранён"
-        } else if isPaired {
+        } else if UserDefaults.standard.bool(forKey: Self.pairedKey), savedDeviceToken == nil {
             trustedDeviceStatus = "Pairing сохранён, token отсутствует"
+        } else if savedDeviceToken != nil {
+            trustedDeviceStatus = "Token сохранён для другого сервера"
         } else {
             trustedDeviceStatus = "Не trusted · нужен PIN"
         }
@@ -882,7 +1025,7 @@ final class ChatStore: ObservableObject {
 
     private func scheduleConnectivityRetry() {
         guard connectivityRetryTask == nil else { return }
-        guard UserDefaults.standard.bool(forKey: Self.pairedKey) else { return }
+        guard hasTrustedPairingForActiveServer else { return }
 
         let index = min(connectivityRetryAttempt, connectivityRetryDelays.count - 1)
         let delay = connectivityRetryDelays[index]
@@ -937,6 +1080,7 @@ final class ChatStore: ObservableObject {
         resetConnectivityRetry()
         apiClient.deviceToken = nil
         UserDefaults.standard.removeObject(forKey: Self.deviceTokenKey)
+        UserDefaults.standard.removeObject(forKey: Self.pairedServerAddressKey)
         UserDefaults.standard.set(false, forKey: Self.pairedKey)
         updateTrustedDeviceStatus()
     }
@@ -1212,7 +1356,156 @@ final class ChatStore: ObservableObject {
         return host.caseInsensitiveCompare(stableHost) == .orderedSame
     }
 
+    private static func parseScannedConnectionPayload(_ rawValue: String) throws -> ScannedConnectionPayload {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value.count <= 8192 else {
+            throw ScannedConnectionPayloadError.invalid
+        }
+
+        if let data = value.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let payload = parseScannedJSONObject(object) {
+            return payload
+        }
+
+        if let serverAddress = scannedServerAddress(from: value) {
+            return ScannedConnectionPayload(
+                serverAddress: serverAddress,
+                pairingCode: scannedPairingCode(fromURL: value)
+            )
+        }
+
+        if let pairingCode = sanitizedPairingCode(value) {
+            return ScannedConnectionPayload(serverAddress: nil, pairingCode: pairingCode)
+        }
+
+        throw ScannedConnectionPayloadError.invalid
+    }
+
+    private static func parseScannedJSONObject(_ object: [String: Any]) -> ScannedConnectionPayload? {
+        if let nested = object["pairingPayload"] as? [String: Any],
+           let nestedPayload = parseScannedJSONObject(nested) {
+            return nestedPayload
+        }
+
+        let app = stringValue(object["app"])?.lowercased()
+        let type = stringValue(object["type"])?.lowercased()
+        let isSoloDropPayload = app == "solodrop" || type == "solodrop.pairing"
+        guard isSoloDropPayload else { return nil }
+
+        let serverAddress = [
+            "serverUrl",
+            "server_url",
+            "lanServerUrl",
+            "lan_server_url",
+            "pairVerifyUrl",
+            "pair_verify_url",
+            "lanPairVerifyUrl",
+            "lan_pair_verify_url"
+        ]
+            .compactMap { key in stringValue(object[key]).flatMap(scannedServerAddress(from:)) }
+            .first
+
+        let pairingCode = [
+            "code",
+            "pairCode",
+            "pair_code",
+            "pin",
+            "PIN"
+        ]
+            .compactMap { key in stringValue(object[key]).flatMap(sanitizedPairingCode(_:)) }
+            .first
+
+        guard serverAddress != nil || pairingCode != nil else { return nil }
+        return ScannedConnectionPayload(serverAddress: serverAddress, pairingCode: pairingCode)
+    }
+
+    private static func scannedServerAddress(from rawValue: String) -> String? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 2048 else { return nil }
+
+        let withScheme = trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://")
+            ? trimmed
+            : "http://\(trimmed)"
+        guard var components = URLComponents(string: withScheme),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = components.host?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !host.isEmpty,
+              isAllowedScannedServer(host: host, port: components.port) else {
+            return nil
+        }
+
+        if components.port == nil {
+            components.port = 8000
+        }
+        components.path = ""
+        components.query = nil
+        components.fragment = nil
+        return normalizedServerAddress(components.url?.absoluteString)
+    }
+
+    private static func scannedPairingCode(fromURL rawValue: String) -> String? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let withScheme = trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://")
+            ? trimmed
+            : "http://\(trimmed)"
+        guard let components = URLComponents(string: withScheme) else { return nil }
+        return components.queryItems?
+            .first { ["code", "pairCode", "pair_code", "pin"].contains($0.name) }
+            .flatMap { sanitizedPairingCode($0.value ?? "") }
+    }
+
+    private static func sanitizedPairingCode(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count == 6,
+              trimmed.allSatisfy(\.isNumber) else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func isAllowedScannedServer(host: String, port: Int?) -> Bool {
+        let normalizedHost = host.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
+        if normalizedHost == stableHost || normalizedHost.hasSuffix(".local") {
+            return true
+        }
+        if port == 8000 || port == 8765 {
+            return true
+        }
+        return isPrivateIPv4Host(normalizedHost)
+    }
+
+    private static func isPrivateIPv4Host(_ host: String) -> Bool {
+        let parts = host.split(separator: ".").compactMap { Int($0) }
+        guard parts.count == 4 else { return false }
+        if parts[0] == 10 { return true }
+        if parts[0] == 192, parts[1] == 168 { return true }
+        if parts[0] == 172, (16...31).contains(parts[1]) { return true }
+        if parts[0] == 169, parts[1] == 254 { return true }
+        return false
+    }
+
+    private static func stringValue(_ value: Any?) -> String? {
+        if let value = value as? String {
+            return value
+        }
+        if let value = value as? NSNumber {
+            return value.stringValue
+        }
+        return nil
+    }
+
     private func log(_ message: String) {
         print("[SoloDrop iOS] \(message)")
     }
+}
+
+private struct ScannedConnectionPayload {
+    let serverAddress: String?
+    let pairingCode: String?
+}
+
+private enum ScannedConnectionPayloadError: Error {
+    case invalid
 }

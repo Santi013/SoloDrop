@@ -4,6 +4,8 @@
 <dict>
     <key>NSLocalNetworkUsageDescription</key>
     <string>Приложение подключается к локальному серверу на вашем ПК для обмена сообщениями и файлами.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>SoloDrop использует камеру, чтобы сканировать QR-код подключения.</string>
     <key>NSBonjourServices</key>
     <array>
         <string>_http._tcp.</string>
