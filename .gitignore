@@ -41,6 +41,8 @@ obj/
 *.spec
 *.exe
 *.msi
+*.dmg
+*.app/
 
 # Inno Setup output
 Output/

@@ -71,6 +71,21 @@ build_installer.bat
 
 The installer output is `pc_server/installer/SoloDropSetup.exe`. Do not commit installer binaries to the main repository.
 
+## Build macOS App and DMG
+
+```bash
+cd pc_server
+./build_macos_dmg.sh
+```
+
+The build creates `pc_server/dist/SoloDrop.app` and `pc_server/installer/SoloDropSetup-macOS.dmg`.
+The macOS app starts the local FastAPI server and opens the SoloDrop Web UI inside the app window.
+It does not open an external browser during the normal launch flow.
+
+User data, settings, uploads, previews, and local history are stored in the macOS application support directory, not inside `SoloDrop.app`. Replacing or reinstalling the app should not remove that runtime state.
+
+Do not commit generated macOS app bundles, DMG files, build caches, runtime databases, logs, local `config.json`, or private certificates.
+
 ## Connect iPhone
 
 1. Start the Windows server.

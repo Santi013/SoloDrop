@@ -8,6 +8,7 @@ import mimetypes
 import secrets
 import hashlib
 import hmac
+import os
 import shutil
 import socket
 import sqlite3
@@ -53,12 +54,20 @@ except ImportError:
 
 
 SOURCE_DIR = Path(__file__).resolve().parent
-if getattr(sys, "frozen", False):
-    BASE_DIR = Path(sys.executable).resolve().parent
-    RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", BASE_DIR))
-else:
-    BASE_DIR = SOURCE_DIR
-    RESOURCE_DIR = SOURCE_DIR
+RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", SOURCE_DIR)) if getattr(sys, "frozen", False) else SOURCE_DIR
+
+
+def runtime_base_dir() -> Path:
+    override = os.environ.get("SOLODROP_RUNTIME_DIR")
+    if override:
+        return Path(override).expanduser()
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return SOURCE_DIR
+
+
+BASE_DIR = runtime_base_dir()
+BASE_DIR.mkdir(parents=True, exist_ok=True)
 
 CONFIG_PATH = BASE_DIR / "config.json"
 CONFIG_EXAMPLE_PATH = BASE_DIR / "config.example.json"
@@ -1368,10 +1377,7 @@ def uvicorn_kwargs() -> dict[str, Any]:
         cert_path = config.resolve_path(config.cert_path)
         key_path = config.resolve_path(config.key_path)
         if not cert_path.exists() or not key_path.exists():
-            raise RuntimeError(
-                "HTTPS is enabled but cert/key files are missing. "
-                f"Expected cert={cert_path} key={key_path}."
-            )
+            raise RuntimeError("HTTPS is enabled but cert/key files are missing.")
         kwargs["ssl_certfile"] = str(cert_path)
         kwargs["ssl_keyfile"] = str(key_path)
     return kwargs
