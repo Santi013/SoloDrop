@@ -7,17 +7,17 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=20260517-icons" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/app-icon-180.png?v=20260517-icons" />
     <link rel="manifest" href="/manifest.webmanifest?v=20260517-icons" />
-    <link rel="stylesheet" href="/style.css?v=20260521-admin-pairing" />
+    <link rel="stylesheet" href="/style.css?v=20260521-web-i18n" />
   </head>
   <body>
     <div id="sidebarOverlay" class="sidebar-overlay" hidden></div>
-    <aside id="historySidebar" class="history-sidebar" aria-label="История передач">
+    <aside id="historySidebar" class="history-sidebar" aria-label="История передач" data-i18n-aria-label="history.aria">
       <div class="sidebar-header">
         <div>
-          <h2>История</h2>
-          <p>Передачи по датам</p>
+          <h2 data-i18n="history.title">История</h2>
+          <p data-i18n="history.subtitle">Передачи по датам</p>
         </div>
-        <button id="closeSidebarButton" class="icon-button" type="button" title="Закрыть">×</button>
+        <button id="closeSidebarButton" class="icon-button" type="button" title="Закрыть" data-i18n-title="action.close">×</button>
       </div>
       <nav id="historyList" class="history-list"></nav>
     </aside>
@@ -25,7 +25,7 @@
     <main class="chat-shell">
       <header class="top-bar">
         <div class="brand">
-          <button id="openSidebarButton" class="icon-button" type="button" title="История">☰</button>
+          <button id="openSidebarButton" class="icon-button" type="button" title="История" data-i18n-title="history.title">☰</button>
           <img class="brand-icon" src="/icons/solodrop-mark-96.png?v=20260517-icons" alt="" width="38" height="38" />
           <div>
             <h1>SoloDrop</h1>
@@ -33,39 +33,39 @@
           </div>
         </div>
         <div class="top-actions">
-          <button id="settingsButton" class="icon-button" type="button" title="Настройки">⚙</button>
-          <button id="clearChatButton" class="clear-chat-button" type="button" title="Очистить чат">
+          <button id="settingsButton" class="icon-button" type="button" title="Настройки" data-i18n-title="settings.title">⚙</button>
+          <button id="clearChatButton" class="clear-chat-button" type="button" title="Очистить чат" data-i18n-title="action.clearChat">
             🗑
           </button>
         </div>
       </header>
 
-      <section id="messageList" class="message-list" aria-label="Лента сообщений"></section>
+      <section id="messageList" class="message-list" aria-label="Лента сообщений" data-i18n-aria-label="messages.aria"></section>
 
       <form id="composer" class="composer">
-        <label class="attach-button" title="Прикрепить файл">
+        <label class="attach-button" title="Прикрепить файл" data-i18n-title="action.attachFile">
           <input id="fileInput" type="file" />
           <span>+</span>
         </label>
-        <input id="messageInput" type="text" autocomplete="off" placeholder="Сообщение" />
-        <button class="send-button" type="submit" title="Отправить">↑</button>
+        <input id="messageInput" type="text" autocomplete="off" placeholder="Сообщение" data-i18n-placeholder="messages.placeholder" />
+        <button class="send-button" type="submit" title="Отправить" data-i18n-title="action.send">↑</button>
       </form>
     </main>
 
     <div id="settingsOverlay" class="settings-overlay" hidden>
-      <section class="settings-panel" aria-label="Настройки">
+      <section class="settings-panel" aria-label="Настройки" data-i18n-aria-label="settings.title">
         <div class="settings-header">
           <div>
-            <h2>Настройки</h2>
-            <p>Параметры этого устройства</p>
+            <h2 data-i18n="settings.title">Настройки</h2>
+            <p data-i18n="settings.subtitle">Параметры этого устройства</p>
           </div>
-          <button id="closeSettingsButton" class="icon-button" type="button" title="Закрыть">×</button>
+          <button id="closeSettingsButton" class="icon-button" type="button" title="Закрыть" data-i18n-title="action.close">×</button>
         </div>
         <div class="settings-body">
           <section id="pairingPanel" class="settings-section pairing-panel" aria-live="polite">
             <div class="settings-section-header">
               <div>
-                <h3>Pairing / Подключение устройств</h3>
+                <h3 data-i18n="pairing.title">Pairing / Подключение устройств</h3>
                 <p id="pairingSummary">Проверка сервера...</p>
               </div>
               <span id="pairingStatusBadge" class="status-badge">Проверка</span>
@@ -73,63 +73,74 @@
 
             <div class="settings-grid">
               <div class="settings-field">
-                <span>Pairing status</span>
+                <span data-i18n="pairing.statusLabel">Pairing status</span>
                 <strong id="pairingStatus">Проверка сервера...</strong>
               </div>
               <div class="settings-field">
-                <span>Device ID</span>
+                <span data-i18n="pairing.deviceId">Device ID</span>
                 <code id="deviceIdLabel"></code>
               </div>
               <div class="settings-field">
-                <span>Device</span>
+                <span data-i18n="pairing.device">Device</span>
                 <strong id="deviceNameLabel"></strong>
               </div>
               <div class="settings-field">
-                <span>Trusted status</span>
+                <span data-i18n="pairing.trustedStatus">Trusted status</span>
                 <strong id="trustStatusLabel">Проверка...</strong>
               </div>
             </div>
 
             <div class="pin-control">
               <div class="pin-content">
-                <h4>PIN для подключения устройства</h4>
+                <h4 data-i18n="pairing.pinTitle">PIN для подключения устройства</h4>
                 <strong id="pairCodeValue" class="pin-code">------</strong>
                 <div class="pairing-actions">
-                  <button id="requestPairCodeButton" class="primary-button" type="button">Обновить</button>
-                  <button id="copyPairCodeButton" class="secondary-button" type="button" disabled>Скопировать</button>
+                  <button id="requestPairCodeButton" class="primary-button" type="button" data-i18n="action.refresh">Обновить</button>
+                  <button id="copyPairCodeButton" class="secondary-button" type="button" disabled data-i18n="action.copy">Скопировать</button>
                 </div>
               </div>
-              <div class="qr-panel" aria-label="QR code">
-                <img id="pairQrImage" class="pair-qr" alt="QR code" hidden />
+              <div class="qr-panel" aria-label="QR code" data-i18n-aria-label="pairing.qrLabel">
+                <img id="pairQrImage" class="pair-qr" alt="QR code" data-i18n-alt="pairing.qrLabel" hidden />
               </div>
             </div>
             <p id="pairingError" class="settings-error" hidden></p>
 
             <div class="settings-grid server-grid">
               <div class="settings-field">
-                <span>Server URL</span>
+                <span data-i18n="server.url">Server URL</span>
                 <code id="serverUrlLabel"></code>
               </div>
               <div class="settings-field">
-                <span>Bonjour / discovery</span>
+                <span data-i18n="server.discovery">Bonjour / discovery</span>
                 <strong id="bonjourStatusLabel">Проверка...</strong>
               </div>
               <div class="settings-field">
-                <span>Manual address</span>
+                <span data-i18n="server.manualAddress">Manual address</span>
                 <code id="manualAddressLabel"></code>
               </div>
             </div>
 
             <div class="trusted-devices">
-              <div class="field-label">Connected devices</div>
+              <div class="field-label" data-i18n="devices.connected">Connected devices</div>
               <div id="trustedDevicesList" class="trusted-devices-list">Проверка...</div>
             </div>
           </section>
 
+          <label class="settings-row settings-row-control" for="languageSelect">
+            <span>
+              <strong data-i18n="settings.language">Язык</strong>
+              <small data-i18n="settings.languageSubtitle">Интерфейс SoloDrop</small>
+            </span>
+            <select id="languageSelect" class="settings-select" aria-label="Язык" data-i18n-aria-label="settings.language">
+              <option value="ru">Русский</option>
+              <option value="en">English</option>
+            </select>
+          </label>
+
           <label class="settings-row">
             <span>
-              <strong>Автосохранение</strong>
-              <small>Полученные файлы будут сохраняться автоматически</small>
+              <strong data-i18n="settings.autosave">Автосохранение</strong>
+              <small data-i18n="settings.autosaveSubtitle">Полученные файлы будут сохраняться автоматически</small>
             </span>
             <span class="autosave-toggle">
               <input id="autosaveToggle" type="checkbox" />
@@ -141,30 +152,30 @@
     </div>
 
     <div id="imageViewer" class="image-viewer" hidden>
-      <button id="closeViewerButton" class="viewer-close" type="button" title="Закрыть">×</button>
+      <button id="closeViewerButton" class="viewer-close" type="button" title="Закрыть" data-i18n-title="action.close">×</button>
       <img id="viewerImage" class="viewer-image" alt="" />
       <div class="viewer-footer">
         <span id="viewerFileName"></span>
-        <a id="viewerOpenOriginal" href="#" target="_blank" rel="noreferrer">Оригинал</a>
+        <a id="viewerOpenOriginal" href="#" target="_blank" rel="noreferrer" data-i18n="viewer.original">Оригинал</a>
       </div>
     </div>
 
     <div id="contextMenuOverlay" class="context-menu-overlay" hidden>
       <div id="messageContextMenu" class="message-context-menu" role="menu">
-        <button id="copyMessageButton" type="button">Копировать</button>
-        <button id="saveMessageButton" type="button" hidden>Сохранить</button>
+        <button id="copyMessageButton" type="button" data-i18n="action.copy">Копировать</button>
+        <button id="saveMessageButton" type="button" hidden data-i18n="action.save">Сохранить</button>
       </div>
     </div>
 
     <div id="dropZone" class="drop-zone" hidden>
       <div class="drop-zone-panel">
         <div class="drop-zone-icon">＋</div>
-        <div class="drop-zone-title">Отпустите файлы здесь</div>
-        <div class="drop-zone-subtitle">Изображения, видео и аудио будут отправлены в SoloDrop</div>
+        <div class="drop-zone-title" data-i18n="drop.title">Отпустите файлы здесь</div>
+        <div class="drop-zone-subtitle" data-i18n="drop.subtitle">Изображения, видео и аудио будут отправлены в SoloDrop</div>
       </div>
     </div>
 
     <div id="toast" class="toast" hidden></div>
-    <script src="/app.js?v=20260521-admin-pairing"></script>
+    <script src="/app.js?v=20260521-web-i18n"></script>
   </body>
 </html>

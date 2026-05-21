@@ -498,6 +498,10 @@ body.dragging-file {
   cursor: pointer;
 }
 
+.settings-row-control {
+  cursor: default;
+}
+
 .settings-row strong,
 .settings-row small {
   display: block;
@@ -507,6 +511,24 @@ body.dragging-file {
   margin-top: 3px;
   color: var(--muted);
   font-size: 13px;
+}
+
+.settings-select {
+  min-width: 132px;
+  height: 36px;
+  padding: 0 34px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.settings-select:focus {
+  outline: 2px solid color-mix(in srgb, var(--outgoing) 62%, transparent);
+  outline-offset: 2px;
 }
 
 .settings-error {

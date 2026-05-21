@@ -1,3 +1,287 @@
+const LANGUAGE_KEY = "solodropLanguage";
+const SUPPORTED_LANGUAGES = ["ru", "en"];
+const TRANSLATIONS = {
+  ru: {
+    "action.attachFile": "Прикрепить файл",
+    "action.clearChat": "Очистить чат",
+    "action.clearChatConfirm": "Очистить весь чат и удалить загруженные файлы?",
+    "action.close": "Закрыть",
+    "action.copy": "Скопировать",
+    "action.refresh": "Обновить",
+    "action.save": "Сохранить",
+    "action.send": "Отправить",
+    "connection.connecting": "Подключение...",
+    "connection.online": "Онлайн в локальной сети · {device}",
+    "connection.pairingRequired": "Требуется pairing · {device}",
+    "connection.reconnecting": "Переподключение...",
+    "connection.serverUnavailable": "Сервер недоступен",
+    "connection.syncing": "Синхронизация · {device}",
+    "date.today": "Сегодня",
+    "date.yesterday": "Вчера",
+    "device.current": "текущее",
+    "device.ios": "iPhone",
+    "device.pc": "ПК",
+    "device.serverHost": "Хост сервера",
+    "device.unknown": "Устройство",
+    "device.webAdmin": "SoloDrop Web",
+    "devices.connected": "Подключенные устройства",
+    "devices.empty": "Нет подключенных устройств",
+    "devices.lastSeen": "был в сети {date}",
+    "devices.serverUnavailable": "Сервер недоступен",
+    "drop.subtitle": "Изображения, видео и аудио будут отправлены в SoloDrop",
+    "drop.title": "Отпустите файлы здесь",
+    "error.clearChat": "Не удалось очистить чат.",
+    "error.pairingRejected": "Pairing rejected",
+    "error.pairingStatus": "Не удалось обновить статус pairing",
+    "error.pinExpired": "Неверный или просроченный PIN",
+    "error.pinRequired": "Введите PIN",
+    "error.pinUnavailable": "Не удалось получить PIN",
+    "error.sendFile": "Не удалось отправить файл",
+    "error.sendMessage": "Не удалось отправить сообщение",
+    "error.serverAddress": "Проверьте адрес SoloDrop Server",
+    "error.serverUnavailable": "Сервер недоступен",
+    "file.audio": "Аудио",
+    "file.file": "файл",
+    "file.image": "Изображение",
+    "file.saved": "Файл сохранен",
+    "file.video": "Видео",
+    "history.aria": "История передач",
+    "history.empty": "Файлов пока нет",
+    "history.subtitle": "Передачи по датам",
+    "history.title": "История",
+    "messages.aria": "Лента сообщений",
+    "messages.emptyBody": "Отправьте файл или выберите дату в истории слева, чтобы посмотреть передачи за нужный день.",
+    "messages.emptyTitle": "Текущий обмен",
+    "messages.placeholder": "Сообщение",
+    "pairing.codeUnavailable": "PIN недоступен",
+    "pairing.device": "Устройство",
+    "pairing.deviceId": "ID устройства",
+    "pairing.pinTitle": "PIN для подключения устройства",
+    "pairing.qrLabel": "QR-код",
+    "pairing.status.admin": "Admin",
+    "pairing.status.checking": "Проверка сервера...",
+    "pairing.status.connected": "Подключено",
+    "pairing.status.error": "Ошибка",
+    "pairing.status.notPaired": "Не подключено",
+    "pairing.status.repair": "Требуется повторный pairing",
+    "pairing.status.required": "Требуется pairing",
+    "pairing.statusLabel": "Статус pairing",
+    "pairing.summary.admin": "PIN/QR для внешних устройств",
+    "pairing.summary.cleanCredentials": "Локальные pairing credentials очищены",
+    "pairing.summary.connectInSettings": "Подключите устройство в настройках",
+    "pairing.summary.getPin": "Получите PIN или введите существующий",
+    "pairing.summary.knownButTokenRejected": "Сервер знает ID устройства, но token не принят",
+    "pairing.summary.noBrowserDevice": "Нет trusted device для этого браузера",
+    "pairing.summary.repair": "Получите новый PIN и подключите это устройство",
+    "pairing.summary.serverStatusUnavailable": "Сервер недоступен или endpoint статуса не ответил",
+    "pairing.summary.tokenAccepted": "Device token принят сервером",
+    "pairing.summary.tokenRejected": "Device token не принят сервером",
+    "pairing.summary.websocketRejected": "WebSocket отклонен: device_token не принят",
+    "pairing.title": "Pairing / Подключение устройств",
+    "pairing.trust.admin": "Доверенная admin-сессия",
+    "pairing.trust.notTrusted": "Не доверенное",
+    "pairing.trust.tokenInvalid": "Token недействителен",
+    "pairing.trust.tokenRequired": "Нужен token",
+    "pairing.trust.trusted": "Доверенное",
+    "pairing.trust.unknown": "Неизвестно",
+    "pairing.trustedStatus": "Статус доверия",
+    "server.discovery": "Bonjour / обнаружение",
+    "server.manualActive": "Активен: {host}",
+    "server.manualAddress": "Ручной адрес",
+    "server.notFound": "Не найден",
+    "server.notFoundBonjourDisabled": "Не найден · Bonjour отключен",
+    "server.notFoundZeroconf": "Не найден · zeroconf недоступен",
+    "server.serverFound": "Найден сервер · {name}",
+    "server.url": "URL сервера",
+    "settings.autosave": "Автосохранение",
+    "settings.autosaveSubtitle": "Полученные файлы будут сохраняться автоматически",
+    "settings.language": "Язык",
+    "settings.languageSubtitle": "Интерфейс SoloDrop",
+    "settings.subtitle": "Параметры этого устройства",
+    "settings.title": "Настройки",
+    "toast.autosaveOff": "Автосохранение выключено",
+    "toast.autosaveOn": "Автосохранение включено",
+    "toast.copied": "Скопировано",
+    "toast.copyFailed": "Не удалось скопировать",
+    "toast.fileCopied": "Файл скопирован",
+    "toast.fileSaved": "Файл сохранен: {name}",
+    "toast.fileSent": "Файл отправлен",
+    "toast.filesSent": "Файлов отправлено: {count}",
+    "toast.mediaCopied": "Медиа скопировано",
+    "toast.pairingFailed": "Pairing не выполнен",
+    "toast.pinCopied": "PIN скопирован",
+    "toast.pinCopyFailed": "Не удалось скопировать PIN",
+    "toast.pinUnavailable": "Не удалось получить PIN",
+    "toast.savingStarted": "Сохранение началось",
+    "toast.sendFailed": "Не удалось отправить: {name}",
+    "toast.sendingFiles": "Отправка файлов: {count}",
+    "toast.sendingMedia": "Отправка медиа: {count}",
+    "toast.serverUnavailableClearLocal": "Сервер недоступен, очищаю локальный pairing",
+    "viewer.original": "Оригинал",
+  },
+  en: {
+    "action.attachFile": "Attach file",
+    "action.clearChat": "Clear chat",
+    "action.clearChatConfirm": "Clear the whole chat and delete uploaded files?",
+    "action.close": "Close",
+    "action.copy": "Copy",
+    "action.refresh": "Refresh",
+    "action.save": "Save",
+    "action.send": "Send",
+    "connection.connecting": "Connecting...",
+    "connection.online": "Online on local network · {device}",
+    "connection.pairingRequired": "Pairing required · {device}",
+    "connection.reconnecting": "Reconnecting...",
+    "connection.serverUnavailable": "Server unavailable",
+    "connection.syncing": "Syncing · {device}",
+    "date.today": "Today",
+    "date.yesterday": "Yesterday",
+    "device.current": "current",
+    "device.ios": "iPhone",
+    "device.pc": "PC",
+    "device.serverHost": "Server host",
+    "device.unknown": "Device",
+    "device.webAdmin": "SoloDrop Web",
+    "devices.connected": "Connected devices",
+    "devices.empty": "No connected devices",
+    "devices.lastSeen": "last seen {date}",
+    "devices.serverUnavailable": "Server unavailable",
+    "drop.subtitle": "Images, video, and audio will be sent to SoloDrop",
+    "drop.title": "Drop files here",
+    "error.clearChat": "Could not clear the chat.",
+    "error.pairingRejected": "Pairing rejected",
+    "error.pairingStatus": "Could not update pairing status",
+    "error.pinExpired": "Invalid or expired PIN",
+    "error.pinRequired": "Enter PIN",
+    "error.pinUnavailable": "Could not get PIN",
+    "error.sendFile": "Could not send file",
+    "error.sendMessage": "Could not send message",
+    "error.serverAddress": "Check the SoloDrop Server address",
+    "error.serverUnavailable": "Server unavailable",
+    "file.audio": "Audio",
+    "file.file": "file",
+    "file.image": "Image",
+    "file.saved": "File saved",
+    "file.video": "Video",
+    "history.aria": "Transfer history",
+    "history.empty": "No files yet",
+    "history.subtitle": "Transfers by date",
+    "history.title": "History",
+    "messages.aria": "Message feed",
+    "messages.emptyBody": "Send a file or choose a date in history to view transfers for that day.",
+    "messages.emptyTitle": "Current exchange",
+    "messages.placeholder": "Message",
+    "pairing.codeUnavailable": "PIN unavailable",
+    "pairing.device": "Device",
+    "pairing.deviceId": "Device ID",
+    "pairing.pinTitle": "PIN for connecting a device",
+    "pairing.qrLabel": "QR code",
+    "pairing.status.admin": "Admin",
+    "pairing.status.checking": "Checking server...",
+    "pairing.status.connected": "Connected",
+    "pairing.status.error": "Error state",
+    "pairing.status.notPaired": "Not connected",
+    "pairing.status.repair": "Pair again required",
+    "pairing.status.required": "Pairing required",
+    "pairing.statusLabel": "Pairing status",
+    "pairing.summary.admin": "PIN/QR for external devices",
+    "pairing.summary.cleanCredentials": "Local pairing credentials cleared",
+    "pairing.summary.connectInSettings": "Connect the device in Settings",
+    "pairing.summary.getPin": "Get a PIN or enter an existing one",
+    "pairing.summary.knownButTokenRejected": "The server knows this device_id, but the token was rejected",
+    "pairing.summary.noBrowserDevice": "No trusted device for this browser",
+    "pairing.summary.repair": "Get a new PIN and connect this device",
+    "pairing.summary.serverStatusUnavailable": "Server unavailable or status endpoint did not respond",
+    "pairing.summary.tokenAccepted": "Device token accepted by server",
+    "pairing.summary.tokenRejected": "Device token rejected by server",
+    "pairing.summary.websocketRejected": "WebSocket rejected: device_token was not accepted",
+    "pairing.title": "Pairing / Connect devices",
+    "pairing.trust.admin": "Trusted admin",
+    "pairing.trust.notTrusted": "Not trusted",
+    "pairing.trust.tokenInvalid": "Token invalid",
+    "pairing.trust.tokenRequired": "Token required",
+    "pairing.trust.trusted": "Trusted",
+    "pairing.trust.unknown": "Unknown",
+    "pairing.trustedStatus": "Trusted status",
+    "server.discovery": "Bonjour / discovery",
+    "server.manualActive": "Active: {host}",
+    "server.manualAddress": "Manual address",
+    "server.notFound": "Not found",
+    "server.notFoundBonjourDisabled": "Not found · Bonjour disabled",
+    "server.notFoundZeroconf": "Not found · zeroconf unavailable",
+    "server.serverFound": "Server found · {name}",
+    "server.url": "Server URL",
+    "settings.autosave": "Autosave",
+    "settings.autosaveSubtitle": "Received files will be saved automatically",
+    "settings.language": "Language",
+    "settings.languageSubtitle": "SoloDrop interface",
+    "settings.subtitle": "This device settings",
+    "settings.title": "Settings",
+    "toast.autosaveOff": "Autosave off",
+    "toast.autosaveOn": "Autosave on",
+    "toast.copied": "Copied",
+    "toast.copyFailed": "Could not copy",
+    "toast.fileCopied": "File copied",
+    "toast.fileSaved": "File saved: {name}",
+    "toast.fileSent": "File sent",
+    "toast.filesSent": "Files sent: {count}",
+    "toast.mediaCopied": "Media copied",
+    "toast.pairingFailed": "Pairing failed",
+    "toast.pinCopied": "PIN copied",
+    "toast.pinCopyFailed": "Could not copy PIN",
+    "toast.pinUnavailable": "Could not get PIN",
+    "toast.savingStarted": "Saving started",
+    "toast.sendFailed": "Could not send: {name}",
+    "toast.sendingFiles": "Sending files: {count}",
+    "toast.sendingMedia": "Sending media: {count}",
+    "toast.serverUnavailableClearLocal": "Server unavailable, clearing local pairing",
+    "viewer.original": "Original",
+  },
+};
+
+function normalizeLanguage(value) {
+  const language = String(value || "").toLowerCase().split("-")[0];
+  return SUPPORTED_LANGUAGES.includes(language) ? language : "";
+}
+
+function detectInitialLanguage() {
+  const saved = normalizeLanguage(localStorage.getItem(LANGUAGE_KEY));
+  if (saved) return saved;
+
+  const languages = navigator.languages?.length ? navigator.languages : [navigator.language];
+  for (const language of languages) {
+    const normalized = normalizeLanguage(language);
+    if (normalized) return normalized;
+  }
+  return "en";
+}
+
+let currentLanguage = detectInitialLanguage();
+
+function languageLocale() {
+  return currentLanguage === "ru" ? "ru-RU" : "en-US";
+}
+
+function t(key, params = {}) {
+  const template = TRANSLATIONS[currentLanguage]?.[key] ?? TRANSLATIONS.en[key] ?? key;
+  return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (_, name) => String(params[name] ?? ""));
+}
+
+function fileCountLabel(count) {
+  if (currentLanguage === "en") {
+    return `${count} ${count === 1 ? "file" : "files"}`;
+  }
+
+  const lastTwo = count % 100;
+  const last = count % 10;
+  let suffix = "файлов";
+  if (lastTwo < 11 || lastTwo > 14) {
+    if (last === 1) suffix = "файл";
+    if (last >= 2 && last <= 4) suffix = "файла";
+  }
+  return `${count} ${suffix}`;
+}
+
 function detectCurrentDevice() {
   const params = new URLSearchParams(window.location.search);
   const deviceFromUrl = params.get("device");
@@ -43,6 +327,7 @@ const saveMessageButton = document.querySelector("#saveMessageButton");
 const settingsButton = document.querySelector("#settingsButton");
 const settingsOverlay = document.querySelector("#settingsOverlay");
 const closeSettingsButton = document.querySelector("#closeSettingsButton");
+const languageSelect = document.querySelector("#languageSelect");
 const autosaveToggle = document.querySelector("#autosaveToggle");
 const pairingPanel = document.querySelector("#pairingPanel");
 const pairingSummary = document.querySelector("#pairingSummary");
@@ -88,6 +373,10 @@ let lastPairCode = "";
 let adminSessionToken = sessionStorage.getItem(ADMIN_SESSION_TOKEN_KEY) || "";
 let pairCodeRequest = null;
 let currentPairingStatus = "checking";
+let currentConnectionStatus = { key: "connecting", params: {} };
+let lastConnectionConfig = null;
+let lastPairingStatusPayload = null;
+let lastTrustedDevices = [];
 
 function createUuid() {
   if (window.crypto?.randomUUID) {
@@ -214,8 +503,72 @@ function authUrl(path) {
   return url.toString();
 }
 
+function applyStaticTranslations() {
+  document.documentElement.lang = currentLanguage;
+  document.querySelectorAll("[data-i18n]").forEach((element) => {
+    element.textContent = t(element.dataset.i18n);
+  });
+  document.querySelectorAll("[data-i18n-title]").forEach((element) => {
+    element.title = t(element.dataset.i18nTitle);
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((element) => {
+    element.placeholder = t(element.dataset.i18nPlaceholder);
+  });
+  document.querySelectorAll("[data-i18n-aria-label]").forEach((element) => {
+    element.setAttribute("aria-label", t(element.dataset.i18nAriaLabel));
+  });
+  document.querySelectorAll("[data-i18n-alt]").forEach((element) => {
+    element.alt = t(element.dataset.i18nAlt);
+  });
+  if (languageSelect) {
+    languageSelect.value = currentLanguage;
+  }
+}
+
+function setConnectionStatus(key, params = {}) {
+  currentConnectionStatus = { key, params };
+  connectionStatus.textContent = t(`connection.${key}`, params);
+}
+
+function renderConnectionStatus() {
+  const params = { ...currentConnectionStatus.params };
+  if (["online", "pairingRequired", "syncing"].includes(currentConnectionStatus.key)) {
+    params.device = currentDeviceLabel();
+  }
+  setConnectionStatus(currentConnectionStatus.key, params);
+}
+
+function renderLanguageSensitiveState() {
+  renderConnectionStatus();
+  updateDeviceLabels();
+  if (lastConnectionConfig) {
+    renderServerStatus(lastConnectionConfig);
+  }
+  if (lastTrustedDevices) {
+    renderTrustedDevices(lastTrustedDevices);
+  }
+  if (lastPairingStatusPayload) {
+    renderPairingStatus(lastPairingStatusPayload, lastTrustedDevices);
+  } else if (currentPairingStatus === "checking") {
+    setPairingStatus("checking", t("pairing.status.checking"));
+  }
+  const previousMessageScroll = messageList.scrollTop;
+  renderMessageHistory();
+  messageList.scrollTop = previousMessageScroll;
+}
+
+function setLanguage(language, { persist = true } = {}) {
+  const normalized = normalizeLanguage(language) || "en";
+  currentLanguage = normalized;
+  if (persist) {
+    localStorage.setItem(LANGUAGE_KEY, normalized);
+  }
+  applyStaticTranslations();
+  renderLanguageSensitiveState();
+}
+
 function formatTime(value) {
-  return new Date(value).toLocaleString("ru-RU", {
+  return new Date(value).toLocaleString(languageLocale(), {
     hour: "2-digit",
     minute: "2-digit",
     day: "2-digit",
@@ -242,10 +595,10 @@ function formatDateDivider(value) {
   const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);
 
-  if (date.getTime() === today.getTime()) return "Сегодня";
-  if (date.getTime() === yesterday.getTime()) return "Вчера";
+  if (date.getTime() === today.getTime()) return t("date.today");
+  if (date.getTime() === yesterday.getTime()) return t("date.yesterday");
 
-  return date.toLocaleDateString("ru-RU", {
+  return date.toLocaleDateString(languageLocale(), {
     day: "numeric",
     month: "long",
     year: "numeric",
@@ -253,7 +606,7 @@ function formatDateDivider(value) {
 }
 
 function monthLabelFromKey(key) {
-  return new Date(`${key}T00:00:00`).toLocaleDateString("ru-RU", {
+  return new Date(`${key}T00:00:00`).toLocaleDateString(languageLocale(), {
     month: "long",
     year: "numeric",
   });
@@ -292,17 +645,17 @@ function isOwnMessage(message) {
 }
 
 function senderLabel(message) {
-  return message.sender === "pc" ? "ПК" : "iPhone";
+  return message.sender === "pc" ? t("device.pc") : t("device.ios");
 }
 
 function currentDeviceLabel() {
-  return currentDevice === "pc" ? "ПК" : "iPhone";
+  return currentDevice === "pc" ? t("device.pc") : t("device.ios");
 }
 
 function updateDeviceLabels() {
   if (isAdminSessionReady()) {
-    deviceIdLabel.textContent = "Server host";
-    deviceNameLabel.textContent = "SoloDrop Web";
+    deviceIdLabel.textContent = t("device.serverHost");
+    deviceNameLabel.textContent = t("device.webAdmin");
     return;
   }
   deviceIdLabel.textContent = deviceId;
@@ -362,7 +715,7 @@ function formatPairingDate(value) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString("ru-RU", {
+  return date.toLocaleString(languageLocale(), {
     hour: "2-digit",
     minute: "2-digit",
     day: "2-digit",
@@ -382,9 +735,9 @@ function setPairingStatus(status, text, { summary = text, error = "" } = {}) {
 
 function hidePairingPanel() {
   if (isAdminSessionReady()) {
-    setPairingStatus("paired", "Admin", { summary: "PIN/QR для внешних устройств" });
+    setPairingStatus("paired", t("pairing.status.admin"), { summary: t("pairing.summary.admin") });
   } else {
-    setPairingStatus("paired", "Подключено", { summary: "Device token принят сервером" });
+    setPairingStatus("paired", t("pairing.status.connected"), { summary: t("pairing.summary.tokenAccepted") });
   }
   setClientEnabled(true);
 }
@@ -484,32 +837,32 @@ function isManualAddressActive(config) {
 function renderServerStatus(config) {
   serverUrlLabel.textContent = currentServerUrl(config);
   const manualEntry = config?.manualEntry || `${window.location.hostname}:${window.location.port || (window.location.protocol === "https:" ? "443" : "80")}`;
-  manualAddressLabel.textContent = isManualAddressActive(config) ? `Активен: ${window.location.host}` : manualEntry;
+  manualAddressLabel.textContent = isManualAddressActive(config) ? t("server.manualActive", { host: window.location.host }) : manualEntry;
 
   const bonjour = config?.bonjour;
   if (!bonjour) {
-    bonjourStatusLabel.textContent = "Не найден";
+    bonjourStatusLabel.textContent = t("server.notFound");
     return;
   }
   if (bonjour.advertised) {
-    bonjourStatusLabel.textContent = `Найден сервер · ${bonjour.serviceName || config.mdnsName}`;
+    bonjourStatusLabel.textContent = t("server.serverFound", { name: bonjour.serviceName || config.mdnsName });
     return;
   }
   if (!bonjour.enabled) {
-    bonjourStatusLabel.textContent = "Не найден · Bonjour отключен";
+    bonjourStatusLabel.textContent = t("server.notFoundBonjourDisabled");
     return;
   }
   if (!bonjour.available) {
-    bonjourStatusLabel.textContent = "Не найден · zeroconf недоступен";
+    bonjourStatusLabel.textContent = t("server.notFoundZeroconf");
     return;
   }
-  bonjourStatusLabel.textContent = "Не найден";
+  bonjourStatusLabel.textContent = t("server.notFound");
 }
 
 function renderTrustedDevices(devices = []) {
   const visibleDevices = devices.filter((device) => !isBrowserDeviceEntry(device));
   if (!visibleDevices.length) {
-    trustedDevicesList.textContent = "Нет подключённых устройств";
+    trustedDevicesList.textContent = t("devices.empty");
     return;
   }
 
@@ -518,12 +871,12 @@ function renderTrustedDevices(devices = []) {
     const item = document.createElement("div");
     item.className = "trusted-device-item";
     const isCurrent = normalizeUuid(device.device_id || device.deviceId) === deviceId;
-    const name = device.device_name || device.deviceName || "Устройство";
+    const name = device.device_name || device.deviceName || t("device.unknown");
     const lastSeen = formatPairingDate(device.last_seen_at || device.lastSeenAt);
     const title = document.createElement("strong");
-    title.textContent = `${name}${isCurrent ? " · current" : ""}`;
+    title.textContent = `${name}${isCurrent ? ` · ${t("device.current")}` : ""}`;
     const meta = document.createElement("small");
-    meta.textContent = `${device.device_id || device.deviceId}${lastSeen ? ` · last seen ${lastSeen}` : ""}`;
+    meta.textContent = `${device.device_id || device.deviceId}${lastSeen ? ` · ${t("devices.lastSeen", { date: lastSeen })}` : ""}`;
     item.append(title, meta);
     trustedDevicesList.append(item);
   }
@@ -547,21 +900,23 @@ function renderPairingStatus(statusPayload, devices = []) {
   const isAdmin = isAdminSessionReady() || statusPayload?.sessionType === "admin";
 
   if (!pairingEnabled) {
-    trustStatusLabel.textContent = "Trusted admin";
-    setPairingStatus("paired", "Admin", { summary: "PIN/QR для внешних устройств" });
+    trustStatusLabel.textContent = t("pairing.trust.admin");
+    setPairingStatus("paired", t("pairing.status.admin"), { summary: t("pairing.summary.admin") });
     return true;
   }
 
   if (isAdmin) {
-    trustStatusLabel.textContent = "Trusted admin";
-    setPairingStatus("paired", "Admin", { summary: "PIN/QR для внешних устройств" });
+    trustStatusLabel.textContent = t("pairing.trust.admin");
+    setPairingStatus("paired", t("pairing.status.admin"), { summary: t("pairing.summary.admin") });
     return true;
   }
 
   if (tokenValid) {
-    trustStatusLabel.textContent = "Trusted";
-    setPairingStatus("paired", "Подключено", {
-      summary: currentDevice?.lastSeenAt ? `Last seen ${formatPairingDate(currentDevice.lastSeenAt)}` : "Device token принят сервером",
+    trustStatusLabel.textContent = t("pairing.trust.trusted");
+    setPairingStatus("paired", t("pairing.status.connected"), {
+      summary: currentDevice?.lastSeenAt
+        ? t("devices.lastSeen", { date: formatPairingDate(currentDevice.lastSeenAt) })
+        : t("pairing.summary.tokenAccepted"),
     });
     if (currentDevice?.deviceName) {
       deviceNameLabel.textContent = currentDevice.deviceName;
@@ -570,16 +925,16 @@ function renderPairingStatus(statusPayload, devices = []) {
   }
 
   if (trusted && isPaired()) {
-    trustStatusLabel.textContent = "Token invalid";
-    setPairingStatus("required", "Требуется повторный pairing", {
-      summary: "Сервер знает device_id, но token не принят",
+    trustStatusLabel.textContent = t("pairing.trust.tokenInvalid");
+    setPairingStatus("required", t("pairing.status.repair"), {
+      summary: t("pairing.summary.knownButTokenRejected"),
     });
     return false;
   }
 
-  trustStatusLabel.textContent = trusted ? "Token required" : "Not trusted";
-  setPairingStatus("not-paired", "Не подключено", {
-    summary: devices.length ? "Получите PIN или введите существующий" : "Нет trusted device для этого браузера",
+  trustStatusLabel.textContent = trusted ? t("pairing.trust.tokenRequired") : t("pairing.trust.notTrusted");
+  setPairingStatus("not-paired", t("pairing.status.notPaired"), {
+    summary: devices.length ? t("pairing.summary.getPin") : t("pairing.summary.noBrowserDevice"),
   });
   return false;
 }
@@ -591,18 +946,21 @@ async function refreshPairingSettings() {
       fetchPairingStatus(),
       fetchTrustedDevices(),
     ]);
+    lastConnectionConfig = config;
+    lastPairingStatusPayload = statusPayload;
+    lastTrustedDevices = devices;
     renderServerStatus(config);
     renderTrustedDevices(devices);
     return renderPairingStatus(statusPayload, devices);
   } catch {
     serverUrlLabel.textContent = window.location.origin;
-    bonjourStatusLabel.textContent = "Не найден";
-    manualAddressLabel.textContent = `Активен: ${window.location.host}`;
-    trustedDevicesList.textContent = "Сервер недоступен";
-    trustStatusLabel.textContent = "Unknown";
-    setPairingStatus("error", "Error state", {
-      summary: "Сервер недоступен или status endpoint не ответил",
-      error: "Не удалось обновить pairing status",
+    bonjourStatusLabel.textContent = t("server.notFound");
+    manualAddressLabel.textContent = t("server.manualActive", { host: window.location.host });
+    trustedDevicesList.textContent = t("devices.serverUnavailable");
+    trustStatusLabel.textContent = t("pairing.trust.unknown");
+    setPairingStatus("error", t("pairing.status.error"), {
+      summary: t("pairing.summary.serverStatusUnavailable"),
+      error: t("error.pairingStatus"),
     });
     return false;
   }
@@ -631,7 +989,7 @@ async function requestPairCode() {
     await checkServerHealth();
     const response = await fetch("/pair/code", { cache: "no-store" });
     if (!response.ok) {
-      throw new Error("Could not create pairing code");
+      throw new Error(t("error.pinUnavailable"));
     }
 
     const payload = await response.json();
@@ -643,18 +1001,18 @@ async function requestPairCode() {
 
     setPairCode(payload.code, payload.expiresAt, payload.qrUrl);
     if (pairingCodeInput) pairingCodeInput.value = "";
-    setPairingStatus("paired", "Admin", {
-      summary: payload.code ? "PIN/QR для внешних устройств" : "PIN недоступен",
+    setPairingStatus("paired", t("pairing.status.admin"), {
+      summary: payload.code ? t("pairing.summary.admin") : t("pairing.codeUnavailable"),
     });
   })();
   try {
     await pairCodeRequest;
   } catch (error) {
-    setPairingStatus("error", "Error state", {
-      summary: "Сервер недоступен",
-      error: error.message || "Не удалось получить PIN",
+    setPairingStatus("error", t("pairing.status.error"), {
+      summary: t("error.serverUnavailable"),
+      error: error.message || t("error.pinUnavailable"),
     });
-    showToast("Не удалось получить PIN");
+    showToast(t("toast.pinUnavailable"));
   } finally {
     requestPairCodeButton.disabled = false;
     pairCodeRequest = null;
@@ -672,7 +1030,7 @@ async function pairDevice() {
   if (!code) {
     setPairingStatus(currentPairingStatus, pairingStatus.textContent, {
       summary: pairingSummary.textContent,
-      error: "Введите PIN",
+      error: t("error.pinRequired"),
     });
     pairingCodeInput.focus();
     return;
@@ -693,12 +1051,12 @@ async function pairDevice() {
     });
 
     if (!response.ok) {
-      throw new Error(response.status === 401 ? "Неверный или просроченный PIN" : "Pairing failed");
+      throw new Error(response.status === 401 ? t("error.pinExpired") : t("toast.pairingFailed"));
     }
 
     const result = await response.json();
     if (!result.paired) {
-      throw new Error("Pairing rejected");
+      throw new Error(t("error.pairingRejected"));
     }
 
     setPairingCredentials(result);
@@ -707,11 +1065,11 @@ async function pairDevice() {
     await startAuthorizedClient();
     await refreshPairingSettings();
   } catch (error) {
-    setPairingStatus("error", "Error state", {
-      summary: "PIN не принят",
-      error: error.message || "Неверный или просроченный PIN",
+    setPairingStatus("error", t("pairing.status.error"), {
+      summary: t("error.pinExpired"),
+      error: error.message || t("error.pinExpired"),
     });
-    showToast("Pairing не выполнен");
+    showToast(t("toast.pairingFailed"));
   } finally {
     pairButton.disabled = false;
   }
@@ -719,7 +1077,7 @@ async function pairDevice() {
 
 async function copyPairCode() {
   const copied = await copyTextToClipboard(lastPairCode);
-  showToast(copied ? "PIN скопирован" : "Не удалось скопировать PIN");
+  showToast(copied ? t("toast.pinCopied") : t("toast.pinCopyFailed"));
 }
 
 async function repairPairing() {
@@ -729,10 +1087,10 @@ async function repairPairing() {
   }
   clearPairingCredentials();
   disconnectWebSocket("Re-pair");
-  connectionStatus.textContent = `Требуется pairing · ${currentDeviceLabel()}`;
-  showPairingPanel("Требуется повторный pairing", {
+  setConnectionStatus("pairingRequired", { device: currentDeviceLabel() });
+  showPairingPanel(t("pairing.status.repair"), {
     status: "required",
-    summary: "Получите новый PIN и подключите это устройство",
+    summary: t("pairing.summary.repair"),
     open: true,
   });
   await requestPairCode();
@@ -748,21 +1106,21 @@ async function resetPairing() {
       await fetch(`/devices/${encodeURIComponent(previousDeviceId)}`, { method: "DELETE" });
     }
   } catch {
-    showToast("Сервер недоступен, очищаю локальный pairing");
+    showToast(t("toast.serverUnavailableClearLocal"));
   } finally {
     clearPairingCredentials({ resetDeviceId: true });
     clearPairCode();
-    pairingCodeInput.value = "";
+    if (pairingCodeInput) pairingCodeInput.value = "";
     disconnectWebSocket("Pairing reset");
-    connectionStatus.textContent = `Требуется pairing · ${currentDeviceLabel()}`;
-    showPairingPanel("Требуется pairing", {
+    setConnectionStatus("pairingRequired", { device: currentDeviceLabel() });
+    showPairingPanel(t("pairing.status.required"), {
       status: "required",
-      summary: "Локальные pairing credentials очищены",
+      summary: t("pairing.summary.cleanCredentials"),
       open: true,
     });
     await refreshPairingSettings();
-    setPairingStatus("required", "Требуется pairing", {
-      summary: "Локальные pairing credentials очищены",
+    setPairingStatus("required", t("pairing.status.required"), {
+      summary: t("pairing.summary.cleanCredentials"),
     });
     resetPairingButton.disabled = false;
     repairPairingButton.disabled = false;
@@ -771,7 +1129,7 @@ async function resetPairing() {
 
 async function startAuthorizedClient() {
   hidePairingPanel();
-  connectionStatus.textContent = `Синхронизация · ${currentDeviceLabel()}`;
+  setConnectionStatus("syncing", { device: currentDeviceLabel() });
   await loadMessages();
   connectWebSocket();
 }
@@ -784,11 +1142,11 @@ async function bootstrapClient() {
     await refreshPairingSettings();
     await startAuthorizedClient();
   } catch (error) {
-    connectionStatus.textContent = "Сервер недоступен";
-    showPairingPanel("Error state", {
+    setConnectionStatus("serverUnavailable");
+    showPairingPanel(t("pairing.status.error"), {
       status: "error",
-      summary: "Проверьте адрес SoloDrop Server",
-      error: error.message || "Сервер недоступен",
+      summary: t("error.serverAddress"),
+      error: t("error.serverUnavailable"),
     });
   }
 }
@@ -802,10 +1160,10 @@ function ensurePairedForSend() {
     return true;
   }
 
-  connectionStatus.textContent = `Требуется pairing · ${currentDeviceLabel()}`;
-  showPairingPanel("Требуется pairing", {
+  setConnectionStatus("pairingRequired", { device: currentDeviceLabel() });
+  showPairingPanel(t("pairing.status.required"), {
     status: "required",
-    summary: "Подключите устройство в Settings",
+    summary: t("pairing.summary.connectInSettings"),
     open: true,
   });
   return false;
@@ -870,13 +1228,13 @@ async function copyMessageToClipboard(message) {
   if (isFileMessage(message)) {
     const copiedMedia = await copyMediaToClipboard(message);
     if (copiedMedia) {
-      showToast(isMediaMessage(message) ? "Медиа скопировано" : "Файл скопирован");
+      showToast(isMediaMessage(message) ? t("toast.mediaCopied") : t("toast.fileCopied"));
       return;
     }
   }
 
   const copiedText = await copyTextToClipboard(transferableTextForMessage(message));
-  showToast(copiedText ? "Скопировано" : "Не удалось скопировать");
+  showToast(copiedText ? t("toast.copied") : t("toast.copyFailed"));
 }
 
 function hideMessageContextMenu() {
@@ -1001,7 +1359,7 @@ function saveMessageFile(message) {
   document.body.append(anchor);
   anchor.click();
   anchor.remove();
-  showToast("Сохранение началось");
+  showToast(t("toast.savingStarted"));
 }
 
 async function autosaveMessageFile(message) {
@@ -1021,7 +1379,7 @@ async function autosaveMessageFile(message) {
     saveMessageFile(message);
   }
 
-  showToast(`Файл сохранен: ${message.fileName || "файл"}`);
+  showToast(t("toast.fileSaved", { name: message.fileName || t("file.file") }));
   return true;
 }
 
@@ -1064,8 +1422,8 @@ function fillDragData(dataTransfer, message) {
 
 function openImageViewer({ imageUrl, fileName }) {
   viewerImage.src = imageUrl;
-  viewerImage.alt = fileName || "Изображение";
-  viewerFileName.textContent = fileName || "Изображение";
+  viewerImage.alt = fileName || t("file.image");
+  viewerFileName.textContent = fileName || t("file.image");
   viewerOpenOriginal.href = imageUrl;
   imageViewer.hidden = false;
   document.body.classList.add("viewer-open");
@@ -1183,7 +1541,7 @@ function renderMessage(message) {
     const image = document.createElement("img");
     image.className = "image-preview";
     image.src = imageUrl;
-    image.alt = message.fileName || "Изображение";
+    image.alt = message.fileName || t("file.image");
     image.loading = "lazy";
     image.addEventListener("error", () => {
       image.replaceWith(fileFallbackLink(message));
@@ -1194,7 +1552,7 @@ function renderMessage(message) {
 
     const caption = document.createElement("div");
     caption.className = "file-caption";
-    caption.textContent = message.fileName || "Изображение";
+    caption.textContent = message.fileName || t("file.image");
 
     link.append(image, caption);
     bubble.append(link);
@@ -1207,7 +1565,7 @@ function renderMessage(message) {
 
     const caption = document.createElement("div");
     caption.className = "file-caption";
-    caption.textContent = message.fileName || "Видео";
+    caption.textContent = message.fileName || t("file.video");
 
     bubble.append(video, caption);
   } else if (message.kind === "file" && isAudioMessage(message)) {
@@ -1219,7 +1577,7 @@ function renderMessage(message) {
 
     const caption = document.createElement("div");
     caption.className = "file-caption";
-    caption.textContent = message.fileName || "Аудио";
+    caption.textContent = message.fileName || t("file.audio");
 
     bubble.append(audio, caption);
   } else if (message.kind === "file") {
@@ -1247,7 +1605,7 @@ function renderMessage(message) {
   if (isFileMessage(message) && autosavedMessageIds.has(message.id)) {
     const saved = document.createElement("div");
     saved.className = "saved-note";
-    saved.textContent = "Файл сохранен";
+    saved.textContent = t("file.saved");
     bubble.append(saved);
   }
 
@@ -1259,8 +1617,8 @@ function renderEmptyState() {
   const empty = document.createElement("div");
   empty.className = "empty-state";
   empty.innerHTML = `
-    <h2>Текущий обмен</h2>
-    <p>Отправьте файл или выберите дату в истории слева, чтобы посмотреть передачи за нужный день.</p>
+    <h2>${t("messages.emptyTitle")}</h2>
+    <p>${t("messages.emptyBody")}</p>
   `;
   messageList.append(empty);
 }
@@ -1345,7 +1703,7 @@ function renderSidebarHistory() {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `history-item ${key === (selectedHistoryKey || dateKey({ createdAt: new Date().toISOString() })) ? "active" : ""}`;
-    button.innerHTML = `<span>${formatDateDivider(`${key}T00:00:00`)}</span><small>${files.length} файл${files.length === 1 ? "" : "ов"}</small>`;
+    button.innerHTML = `<span>${formatDateDivider(`${key}T00:00:00`)}</span><small>${fileCountLabel(files.length)}</small>`;
     button.addEventListener("click", () => {
       selectedHistoryKey = key;
       renderMessageHistory();
@@ -1357,7 +1715,7 @@ function renderSidebarHistory() {
   if (keys.length === 0) {
     const empty = document.createElement("div");
     empty.className = "history-empty";
-    empty.textContent = "Файлов пока нет";
+    empty.textContent = t("history.empty");
     historyList.append(empty);
   }
 }
@@ -1391,13 +1749,13 @@ async function sendText(text) {
   });
   if (response.status === 401 || response.status === 403) {
     clearPairingCredentials();
-    showPairingPanel("Требуется повторный pairing", {
+    showPairingPanel(t("pairing.status.repair"), {
       status: "required",
-      summary: "Device token не принят сервером",
+      summary: t("pairing.summary.tokenRejected"),
       open: true,
     });
   }
-  if (!response.ok) throw new Error("Не удалось отправить сообщение");
+  if (!response.ok) throw new Error(t("error.sendMessage"));
 }
 
 async function sendFile(file) {
@@ -1418,13 +1776,13 @@ async function sendFile(file) {
   });
   if (response.status === 401 || response.status === 403) {
     clearPairingCredentials();
-    showPairingPanel("Требуется повторный pairing", {
+    showPairingPanel(t("pairing.status.repair"), {
       status: "required",
-      summary: "Device token не принят сервером",
+      summary: t("pairing.summary.tokenRejected"),
       open: true,
     });
   }
-  if (!response.ok) throw new Error("Не удалось отправить файл");
+  if (!response.ok) throw new Error(t("error.sendFile"));
 }
 
 async function sendDroppedFiles(files) {
@@ -1434,18 +1792,18 @@ async function sendDroppedFiles(files) {
   if (fileList.length === 0) return;
 
   const mediaCount = fileList.filter(isMediaFile).length;
-  showToast(mediaCount > 0 ? `Отправка медиа: ${mediaCount}` : `Отправка файлов: ${fileList.length}`);
+  showToast(mediaCount > 0 ? t("toast.sendingMedia", { count: mediaCount }) : t("toast.sendingFiles", { count: fileList.length }));
 
   for (const file of fileList) {
     try {
       await sendFile(file);
     } catch {
-      showToast(`Не удалось отправить: ${file.name}`);
+      showToast(t("toast.sendFailed", { name: file.name }));
       return;
     }
   }
 
-  showToast(fileList.length === 1 ? "Файл отправлен" : `Файлов отправлено: ${fileList.length}`);
+  showToast(fileList.length === 1 ? t("toast.fileSent") : t("toast.filesSent", { count: fileList.length }));
 }
 
 function showDropZone() {
@@ -1464,7 +1822,7 @@ function hasFiles(event) {
 }
 
 async function clearChat() {
-  const confirmed = window.confirm("Очистить весь чат и удалить загруженные файлы?");
+  const confirmed = window.confirm(t("action.clearChatConfirm"));
   if (!confirmed) return;
 
   const response = await fetch(authUrl("/api/messages"), {
@@ -1472,7 +1830,7 @@ async function clearChat() {
     headers: adminHeaders(),
   });
   if (!response.ok) {
-    window.alert("Не удалось очистить чат.");
+    window.alert(t("error.clearChat"));
     return;
   }
 
@@ -1497,7 +1855,7 @@ function connectWebSocket() {
   let pingTimer = null;
 
   socket.addEventListener("open", () => {
-    connectionStatus.textContent = `Онлайн в локальной сети · ${currentDeviceLabel()}`;
+    setConnectionStatus("online", { device: currentDeviceLabel() });
     pingTimer = window.setInterval(() => {
       if (socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: "ping" }));
@@ -1538,14 +1896,14 @@ function connectWebSocket() {
         ensureAdminSession()
           .then(connectWebSocket)
           .catch(() => {
-            connectionStatus.textContent = "Сервер недоступен";
+            setConnectionStatus("serverUnavailable");
           });
       } else {
         clearPairingCredentials();
-        connectionStatus.textContent = `Требуется pairing · ${currentDeviceLabel()}`;
-        showPairingPanel("Требуется повторный pairing", {
+        setConnectionStatus("pairingRequired", { device: currentDeviceLabel() });
+        showPairingPanel(t("pairing.status.repair"), {
           status: "required",
-          summary: "WebSocket отклонён: device_token не принят",
+          summary: t("pairing.summary.websocketRejected"),
         });
       }
       return;
@@ -1553,7 +1911,7 @@ function connectWebSocket() {
     if (!isAdminSessionReady() && !isPaired()) {
       return;
     }
-    connectionStatus.textContent = "Переподключение...";
+    setConnectionStatus("reconnecting");
     websocketReconnectTimer = window.setTimeout(connectWebSocket, 1500);
   });
 }
@@ -1565,13 +1923,21 @@ composer.addEventListener("submit", async (event) => {
   const text = messageInput.value.trim();
   if (!text) return;
   messageInput.value = "";
-  await sendText(text);
+  try {
+    await sendText(text);
+  } catch (error) {
+    showToast(error.message || t("error.sendMessage"));
+  }
 });
 
 autosaveToggle.addEventListener("change", () => {
   localStorage.setItem(AUTOSAVE_KEY, String(autosaveToggle.checked));
-  showToast(autosaveToggle.checked ? "Автосохранение включено" : "Автосохранение выключено");
+  showToast(autosaveToggle.checked ? t("toast.autosaveOn") : t("toast.autosaveOff"));
   if (autosaveToggle.checked) autosaveNewFiles(allMessages);
+});
+
+languageSelect?.addEventListener("change", (event) => {
+  setLanguage(event.target.value);
 });
 
 openSidebarButton.addEventListener("click", openSidebar);
@@ -1602,7 +1968,11 @@ fileInput.addEventListener("change", async () => {
 
   const file = fileInput.files?.[0];
   if (!file) return;
-  await sendFile(file);
+  try {
+    await sendFile(file);
+  } catch (error) {
+    showToast(error.message || t("error.sendFile"));
+  }
   fileInput.value = "";
 });
 
@@ -1676,6 +2046,9 @@ document.addEventListener("touchend", (event) => {
   sidebarTouchStartX = null;
 }, { passive: true });
 
+applyStaticTranslations();
+setConnectionStatus("connecting");
+setPairingStatus("checking", t("pairing.status.checking"));
 applyDeviceChrome();
 bootstrapClient();
 
